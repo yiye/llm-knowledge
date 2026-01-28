@@ -1,0 +1,3 @@
+[submodule "awesome-llm-projects/moltbot/moltbot"]
+	path = awesome-llm-projects/moltbot/moltbot
+	url = https://github.com/moltbot/moltbot.git
