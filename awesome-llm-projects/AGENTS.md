@@ -24,7 +24,54 @@
 
 ---
 
-### 2. 代码分析方法
+### 2. 项目获取规范 🔥
+
+**GitHub 项目必须使用 Git Submodule**：
+
+研究 GitHub 开源项目时，必须将项目作为 Submodule 添加到工作区：
+
+```bash
+# 在 awesome-llm-projects/<project-name>/ 目录下
+cd awesome-llm-projects
+mkdir <project-name>
+cd <project-name>
+git submodule add <github-url> <repo-name>
+```
+
+**为什么使用 Submodule**：
+- ✅ **保持代码更新**：可以随时切换到不同的 commit/tag
+- ✅ **版本追踪**：明确研究的是哪个版本
+- ✅ **完整代码**：确保所有依赖文件都在本地
+- ✅ **独立管理**：项目代码和研究笔记分离
+
+**目录结构**：
+```
+awesome-llm-projects/
+  └── <project-name>/
+      ├── <repo-name>/        # Git Submodule（源代码仓库）
+      └── notes/              # 研究笔记（按需创建）
+```
+
+**操作步骤**：
+1. 创建项目目录：`mkdir -p awesome-llm-projects/<project-name>`
+2. 添加 Submodule：`cd awesome-llm-projects/<project-name> && git submodule add <url> <repo-name>`
+3. 切换版本（可选）：`cd <repo-name> && git checkout <commit/tag>`
+4. 开始研究：阅读代码并记录笔记
+
+**示例**：
+```bash
+# 研究 DeepSpeed 项目
+cd awesome-llm-projects
+mkdir deepspeed-research
+cd deepspeed-research
+git submodule add https://github.com/microsoft/DeepSpeed.git DeepSpeed
+cd DeepSpeed
+git checkout v0.12.0  # 切换到特定版本
+```
+
+---
+
+### 3. 代码分析方法
 
 **阅读顺序**（建议）：
 1. **README/文档** → 了解项目定位和使用方式
@@ -42,7 +89,7 @@
 
 ---
 
-### 3. 研究笔记记录规范
+### 4. 研究笔记记录规范
 
 #### 文档创建原则 🔥
 
@@ -94,7 +141,7 @@
 
 ---
 
-### 4. 代码引用规范
+### 5. 代码引用规范
 
 **引用格式**：
 ```markdown
@@ -116,7 +163,7 @@ class DeepSpeedEngine:
 
 ---
 
-### 5. 版本和时间标注
+### 6. 版本和时间标注
 
 **研究时必须记录**：
 - **Commit Hash**：研究的是哪个版本的代码
@@ -134,7 +181,7 @@ class DeepSpeedEngine:
 
 ---
 
-### 6. 不确定信息处理
+### 7. 不确定信息处理
 
 遇到不理解或不确定的地方：
 
