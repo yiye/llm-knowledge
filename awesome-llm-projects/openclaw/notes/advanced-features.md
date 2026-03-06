@@ -2,8 +2,9 @@
 
 ## 研究信息
 
-- **研究日期**: 2026-02-04
+- **研究日期**: 2026-03-06
 - **Submodule Path**: `awesome-llm-projects/openclaw/openclaw`
+- **研究版本**: 2026.3.3（commit 73055728318df378c831950cd01fb7c875a33790）
 - **研究层次**: 第8层 - 高级特性（Memory、Auto-reply、Media Understanding、ACP）
 - **核心发现**: 这一层实现了 OpenClaw 的差异化特性，尤其是 Memory 自我整理和 Heartbeat 主动唤醒
 
@@ -107,16 +108,15 @@ export class MemoryIndexManager {
    - **增量更新策略**：基于文件 hash 判断是否需要重新索引
    - 删除已不存在的文件索引
 
-3. **Session 事件监听**（`manager.ts:248`）：
+3. **Session 事件监听**（`manager-sync-ops.ts:407-420`）：
    ```typescript
-   private ensureSessionListener(): void {
-     if (this.sessionUnsubscribe || !this.sources.has("sessions")) return;
+   protected ensureSessionListener() {
+     if (!this.sources.has("sessions") || this.sessionUnsubscribe) return;
      
-     this.sessionUnsubscribe = onSessionTranscriptUpdate((sessionKey, deltaBytes) => {
-       if (sessionKey.startsWith(toAgentStoreSessionKey(this.agentId))) {
-         // 标记 dirty，后续定时索引
-         this.sessionsDirty = true;
-       }
+     this.sessionUnsubscribe = onSessionTranscriptUpdate((update) => {
+       const sessionFile = update.sessionFile;
+       if (!this.isSessionFileForAgent(sessionFile)) return;
+       this.scheduleSessionDirty(sessionFile);
      });
    }
    ```
@@ -318,6 +318,48 @@ CREATE TABLE embedding_cache (
 - 相同文本（hash 相同）复用 embedding
 - 跨文件去重，节省 API 调用
 
+### 1.4.1 Ollama Embedding 支持（2026.3.3 新增）🔥
+
+**配置**（`src/config/types.tools.ts:327,346`）：
+
+- `memorySearch.provider = "ollama"`：使用本地 Ollama 实例做 embedding
+- `memorySearch.fallback = "ollama"`：主 provider 失败时回退到 Ollama
+
+**实现**（`src/memory/embeddings-ollama.ts:1-136`）：
+
+```typescript
+export async function createOllamaEmbeddingProvider(
+  options: EmbeddingProviderOptions,
+): Promise<{ provider: EmbeddingProvider; client: OllamaEmbeddingClient }> {
+  const client = resolveOllamaEmbeddingClient(options);
+  const embedUrl = `${client.baseUrl.replace(/\/$/, "")}/api/embeddings`;
+  // ...
+}
+```
+
+**`models.providers.ollama` 配置复用**（`embeddings-ollama.ts:47-83`）：
+
+- `baseUrl`：从 `options.config.models?.providers?.ollama?.baseUrl` 或 `options.remote?.baseUrl` 解析，默认 `http://127.0.0.1:11434`
+- `apiKey`：从 `models.providers.ollama.apiKey`、`remote.apiKey` 或 `OLLAMA_API_KEY` 环境变量解析
+- `headers`：支持 `providerConfig?.headers` 覆盖
+- URL 中的 `/v1` 会被自动剥离，确保指向 Ollama 原生 API 根路径
+
+**默认模型**（`embeddings-ollama.ts:17`）：`nomic-embed-text`
+
+### 1.4.2 Local Embedding 初始化加固（回归覆盖）🔥
+
+**瞬态初始化重试**（`src/memory/embeddings.ts:114-141`）：
+
+- `ensureContext` 在初始化失败时将 `initPromise = null`，允许后续请求重试
+- 测试覆盖：`embeddings.test.ts:541-594` — `"retries initialization after a transient ensureContext failure"`
+- 首次 `embedBatch` 失败后，第二次调用会重新执行 `getLlama` 并成功
+
+**embedQuery + embedBatch 并发启动共享**（`embeddings.test.ts:595-650`）：
+
+- 测试：`"shares initialization when embedQuery and embedBatch start concurrently"`
+- `embedQuery` 与 `embedBatch` 同时调用时，共享同一个 `initPromise`，只加载一次模型
+- `getLlamaSpy`、`loadModelSpy`、`createContextSpy` 各调用 1 次
+
 ### 1.5 Memory Search Tool 🔥
 
 **Tool 定义**（`src/agents/tools/memory-tool.ts:9-72`）：
@@ -512,7 +554,48 @@ function isWithinActiveHours(
 - 自动读取用户时区（`resolveUserTimezone`）
 - 避免夜间打扰用户
 
-### 2.2 消息分发机制
+### 2.2 Hooks 生命周期事件（2026.3.3 新增）🔥
+
+**内部 Hook 事件**（`src/config/types.hooks.ts:76`、`src/hooks/internal-hooks.ts`）：
+
+- **`message:transcribed`**：音频转录完成后触发，`context` 含 `transcript`、`bodyForAgent`、`channelId` 等（`internal-hooks.ts:99-138`）
+- **`message:preprocessed`**：媒体理解、链接摘要等全部完成后触发，`context` 含 `bodyForAgent`（完整富文本）、`transcript`（若有音频）（`internal-hooks.ts:140-184`）
+
+**`message:sent` 扩展上下文**（`src/hooks/internal-hooks.ts:70-96`）：
+
+```typescript
+export type MessageSentHookContext = {
+  to: string;
+  content: string;
+  success: boolean;
+  channelId: string;
+  isGroup?: boolean;   // 是否群组/频道上下文
+  groupId?: string;    // 群组/频道 ID，便于与 message:received 关联
+  // ...
+};
+```
+
+**`session_start` / `session_end` 中的 `sessionKey`**（`src/plugins/types.ts:573-585`）：
+
+```typescript
+export type PluginHookSessionStartEvent = {
+  sessionId: string;
+  sessionKey?: string;
+  resumedFrom?: string;
+};
+
+export type PluginHookSessionEndEvent = {
+  sessionId: string;
+  sessionKey?: string;
+  messageCount: number;
+  durationMs?: number;
+};
+```
+
+- Hook 上下文 `PluginHookSessionContext`（`types.ts:566-570`）同样包含 `sessionKey`
+- 文档：`docs/automation/hooks.md:262-325`
+
+### 2.3 消息分发机制
 
 **Dispatch Pipeline**（`src/auto-reply/dispatch.ts:1-78`）：
 
@@ -585,7 +668,32 @@ const AUTO_VIDEO_KEY_PROVIDERS = ["google"];
 // 3. Fallback 到下一个 provider
 ```
 
-### 3.2 媒体处理 Pipeline
+### 3.2 音频 Echo Transcript（2026.3.3 新增）🔥
+
+**配置**（`src/config/zod-schema.core.ts:684-685`、`src/config/types.tools.ts:99-104`）：
+
+- `tools.media.audio.echoTranscript`（boolean，默认 `false`）：是否在 Agent 处理前将转录文本回显到聊天
+- `tools.media.audio.echoFormat`（string，可选）：回显格式，支持 `{transcript}` 占位符
+
+**实现**（`src/media-understanding/apply.ts:532-541`）：
+
+```typescript
+const audioCfg = cfg.tools?.media?.audio;
+if (audioCfg?.echoTranscript && transcript) {
+  await sendTranscriptEcho({
+    ctx,
+    cfg,
+    transcript,
+    format: audioCfg.echoFormat ?? DEFAULT_ECHO_TRANSCRIPT_FORMAT,
+  });
+}
+```
+
+**默认格式**（`src/media-understanding/echo-transcript.ts:14`）：`'📝 "{transcript}"'`
+
+**文档**：`docs/nodes/audio.md:120-143`、`docs/nodes/media-understanding.md:43,61-62`
+
+### 3.3 媒体处理 Pipeline
 
 **Attachment 处理**（`src/media-understanding/attachments.ts`）：
 
@@ -655,6 +763,28 @@ export type AcpSession = {
 - **Gateway-backed**：ACP Server 作为 Gateway 的客户端
 - **NDJSON Protocol**：基于换行分隔的 JSON 流
 - **Session 映射**：ACP Session ID ↔ OpenClaw Session Key
+
+### 4.2 ACP 改进（2026.3.3）🔥
+
+**持久化 Channel Bindings**（`src/acp/persistent-bindings.*`）：
+
+- `persistent-bindings.lifecycle.ts`：`ensureConfiguredAcpBindingSession` 确保配置的 binding 对应 session 存在
+- `persistent-bindings.resolve.ts`：支持 `parentConversationId` 继承父频道 binding（Discord thread → 父 channel）
+- `persistent-bindings.route.ts`：路由 API 暴露 `parentConversationId`
+- Discord thread 场景：当 `conversationId` 为 thread 时，可回退到 `parentConversationId` 的 channel binding
+
+**Session Bootstrap 重试**（CHANGELOG #28786, #31338, #34055）：
+
+- 当 `sessions ensure` 返回空 session 标识时，自动用 `sessions new` 重试
+- 避免 ACP spawn 出现 `NO_SESSION` / `ACP_TURN_FAILED` 失败
+
+**`streamTo: "parent"`**（`src/agents/acp-spawn.ts:246-251,430-485`、`sessions-spawn-tool.ts:37,101,123-126`）：
+
+- `sessions_spawn` 工具参数：`streamTo: "parent"` 仅当 `runtime: "acp"` 时有效
+- 将子 run 的进度摘要转发到 requester session 作为 system events，而非直接投递到子 session
+- 需要活跃的 requester session 上下文，否则报错：`streamTo="parent" requires an active requester session context`
+- 可生成 session-scoped relay log（`<sessionId>.acp-stream.jsonl`），通过 `streamLogPath` 返回
+- 文档：`docs/tools/acp-agents.md:243`、`docs/tools/index.md:475-500`
 
 ---
 
@@ -781,7 +911,32 @@ export type AcpSession = {
 
 ---
 
-## 7. 总结
+## 7. Plugin Runtime 新 API（2026.3.3）🔥
+
+**`runtime.system.requestHeartbeatNow`**（`src/plugins/runtime/runtime-system.ts:1-15`、`src/infra/heartbeat-wake.ts`）：
+
+- 插件可立即唤醒指定 session 的 Heartbeat，常用于 `enqueueSystemEvent` 之后
+- 签名：`requestHeartbeatNow(opts?: { reason?: string; agentId?: string; sessionKey?: string; coalesceMs?: number })`
+- 典型用法：异步 exec 完成后调用，触发 Agent 处理 system event
+
+**`runtime.events.onAgentEvent`**（`src/plugins/runtime/runtime-events.ts:1-10`、`src/infra/agent-events.ts:79-84`）：
+
+- 订阅 Agent 运行事件流
+- 回调参数：`AgentEventPayload`（含 `runId`、`stream`、`data`、`sessionKey` 等）
+- `stream` 类型：`"lifecycle" | "tool" | "assistant" | "error"`
+
+**`runtime.events.onSessionTranscriptUpdate`**（`src/sessions/transcript-events.ts:9-14`）：
+
+- 订阅 session transcript 更新
+- 回调参数：`{ sessionFile: string }`（session JSONL 文件路径）
+- 返回 unsubscribe 函数
+- Memory 模块用此监听 session 变更并触发增量索引（`manager-sync-ops.ts:411-420`）
+
+**类型定义**：`src/plugins/runtime/types-core.ts:40-43`
+
+---
+
+## 8. 总结
 
 ### 核心洞察
 
@@ -816,5 +971,5 @@ export type AcpSession = {
 
 ---
 
-**研究完成日期**: 2026-02-04  
+**研究完成日期**: 2026-03-06  
 **下一步**: 第9层 - 工程实践（代码组织与开发体验）

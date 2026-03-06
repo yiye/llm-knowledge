@@ -2,9 +2,10 @@
 
 ## 版本信息
 
-- **Commit**: `6af205a13adfec1fd1eb27d2f3d3546b0b4e8f86`
-- **研究日期**: 2026-01-30
-- **注意**: 该分析基于 2026 年 1 月的代码，可能随版本更新而变化
+- **Commit**: `73055728318df378c831950cd01fb7c875a33790`
+- **版本**: 2026.3.3
+- **研究日期**: 2026-03-06
+- **注意**: 该分析基于 2026 年 3 月的代码，可能随版本更新而变化
 
 ---
 
@@ -301,6 +302,30 @@ export function resolveSessionResetPolicy(params: {
 - **工具裁剪（Tool Pruning）**：在 LLM 调用前从上下文中移除旧的 tool results
 - **不会重写 JSONL 历史**：只影响内存中的上下文
 - **Pre-compaction Memory Flush**：接近 Compaction 时触发静默 Memory 写入
+
+### 3.6 Session Startup 日期 grounding（YYYY-MM-DD）
+
+为避免 Agent 根据训练 cutoff 猜测日期，启动和 post-compaction 上下文中会将 `YYYY-MM-DD` 占位符替换为运行时日期，并追加 `Current time:` 行。
+
+**Post-compaction AGENTS 上下文** (`src/auto-reply/reply/post-compaction-context.ts:29-86`)：
+
+- 从 workspace `AGENTS.md` 提取 "Session Startup" 和 "Red Lines" 段落
+- `formatDateStamp` 按用户时区生成 `YYYY-MM-DD` 格式日期
+- `sections.join("\n\n").replaceAll("YYYY-MM-DD", dateStamp)` 替换占位符
+- 追加 `timeLine`（来自 `resolveCronStyleNow`，格式如 `Current time: 2026-03-06 12:00 (Asia/Shanghai)`）
+
+**Memory Flush Prompt** (`src/auto-reply/reply/memory-flush.ts:41-57`)：
+
+- `resolveMemoryFlushPromptForRun` 将 prompt 中的 `YYYY-MM-DD` 替换为 `formatDateStampInTimezone` 的结果
+- 若结果不含 `Current time:`，则追加 `timeLine`
+
+**`/new` 和 `/reset` 提示** (`src/auto-reply/reply/session-reset-prompt.ts:4-18`)：
+
+- `buildBareSessionResetPrompt` 构建裸 reset 提示（"A new session was started via /new or /reset..."）
+- 通过 `appendCronStyleCurrentTimeLine` 追加 `Current time:` 行
+- 实现：`src/agents/current-time.ts:31-37`，`resolveCronStyleNow` 生成 `timeLine`，`appendCronStyleCurrentTimeLine` 在文本末尾追加（若尚未包含 `Current time:`）
+
+这样 Agent 在 Session Startup 时能正确解析 `memory/YYYY-MM-DD.md` 等路径。
 
 ---
 
@@ -679,6 +704,102 @@ Sub-agent 的 System Prompt 会注入特殊指令：
 - 明确告知这是一个后台任务
 - 任务完成后自动回传结果到父 Session
 - 使用 `AGENT_LANE_SUBAGENT` 标记（优先级处理）
+
+### 5.6 sessions_spawn 内联附件（Attachments）
+
+`sessions_spawn` 支持将文件以内联方式传递给子 Session（仅 `runtime="subagent"`，ACP 不支持）。
+
+**工具 Schema** (`src/agents/tools/sessions-spawn-tool.ts:39-51`)：
+
+```typescript
+attachments: Type.Optional(
+  Type.Array(
+    Type.Object({
+      name: Type.String(),
+      content: Type.String(),
+      encoding: Type.Optional(optionalStringEnum(["utf8", "base64"] as const)),
+      mimeType: Type.Optional(Type.String()),
+    }),
+    { maxItems: 50 },
+  ),
+),
+```
+
+**编码方式** (`src/agents/subagent-spawn.ts:585-620`)：
+
+- `utf8`（默认）：`content` 为 UTF-8 字符串，`Buffer.from(contentVal, "utf8")` 写入
+- `base64`：`content` 为 Base64 字符串，经 `decodeStrictBase64` 解码后写入，超出 `maxFileBytes` 会抛出 `attachments_invalid_base64_or_too_large`
+
+**Transcript 内容脱敏** (`src/agents/session-transcript-repair.ts:74-132`)：
+
+- `redactSessionsSpawnAttachmentsArgs` 将 `attachments[].content` 替换为 `__OPENCLAW_REDACTED__`
+- 在 `sanitizeToolCallBlock` 中对 `sessions_spawn` 的 `arguments` 和 `input` 应用脱敏，避免敏感附件内容持久化到 JSONL
+
+**生命周期清理** (`src/agents/subagent-registry.ts`)：
+
+- `cleanup="delete"` 或 `retainOnSessionKeep=false` 时，子 Run 结束后调用 `safeRemoveAttachmentsDir` 删除附件目录
+- Archive/purge 时同样会移除附件（`subagent-registry.ts:578-579`）
+- `retainOnSessionKeep=true` 时，`cleanup="keep"` 会保留附件目录
+
+**配置** `tools.sessions_spawn.attachments` (`src/agents/subagent-spawn.ts:504-523`)：
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `enabled` | boolean | - | 必须为 `true` 才能使用 attachments |
+| `maxTotalBytes` | number | 5MB | 所有附件总字节上限 |
+| `maxFiles` | number | 50 | 单次 spawn 最大文件数 |
+| `maxFileBytes` | number | 1MB | 单文件字节上限 |
+| `retainOnSessionKeep` | boolean | false | `cleanup="keep"` 时是否保留附件目录 |
+
+附件写入路径：`<agentWorkspace>/.openclaw/attachments/<attachmentId>/`，子 Session 的 System Prompt 会注入该相对路径提示。
+
+### 5.7 ACP Session Bootstrap 重试
+
+当 `sessions ensure` 未返回有效 Session 标识时，ACP/ACPX 会回退到 `sessions new` 创建新 Session，避免 `NO_SESSION`/`ACP_TURN_FAILED` 失败。
+
+**实现位置**：`extensions/acpx/src/runtime.ts:181-218`
+
+```typescript
+// 1. 先执行 sessions ensure
+let events = await this.runControlCommand({
+  args: this.buildControlArgs({ cwd, command: [agent, "sessions", "ensure", "--name", sessionName] }),
+  ...
+});
+let ensuredEvent = events.find(...);
+
+// 2. 若 ensure 无有效 session ID，则执行 sessions new
+if (!ensuredEvent) {
+  events = await this.runControlCommand({
+    args: this.buildControlArgs({ cwd, command: [agent, "sessions", "new", "--name", sessionName] }),
+    ...
+  });
+  ensuredEvent = events.find(...);
+  if (!ensuredEvent) {
+    throw new AcpRuntimeError("ACP_SESSION_INIT_FAILED",
+      `ACP session init failed: neither 'sessions ensure' nor 'sessions new' returned valid session identifiers for ${sessionName}.`);
+  }
+}
+```
+
+**测试**：`extensions/acpx/src/runtime.test.ts:381-426` 覆盖了 ensure 空时回退到 new、以及两者都空时抛出 `ACP_SESSION_INIT_FAILED` 的场景。
+
+### 5.8 streamTo: "parent"（ACP 运行时）
+
+当 `runtime="acp"` 且 `streamTo: "parent"` 时，子 Run 的进度/完成更新会转发到 requester Session，作为 system events 而非直接投递到子 Session。
+
+**实现位置**：`src/agents/acp-spawn.ts:246-251, 434-440, 485-506`
+
+- 要求存在 `parentSessionKey`（requester session context），否则返回错误：`streamTo="parent" requires an active requester session context`
+- 通过 `startAcpSpawnParentStreamRelay` 注册 relay，将子 Run 的 progress/no-output/completion 事件转发到父 Session
+- 返回结果中包含 `streamLogPath`（当可用时）
+
+**streamLogPath** (`src/agents/acp-spawn-parent-stream.ts:42-74`)：
+
+- 路径格式：`<sessionsDir>/<sessionId>.acp-stream.jsonl`
+- 与子 Session 的 transcript 同目录，按 session 作用域
+- 可用于 `tail` 查看 ACP stream relay 的进度历史
+
+**文档**：`docs/tools/index.md:486-500`、`docs/tools/acp-agents.md:243`
 
 ---
 
@@ -1110,5 +1231,5 @@ OpenClaw 的 Session 管理不仅是一个"会话管理器"，更是一个**多 
 
 ---
 
-**研究完成于**: 2026-01-30
+**研究完成于**: 2026-03-06
 **研究者**: 璇玑 ✨

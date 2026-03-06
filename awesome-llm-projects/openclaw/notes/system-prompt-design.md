@@ -2,8 +2,8 @@
 
 ## 版本信息
 
-- **研究日期**: 2026-01-30
-- **Commit**: 最新版本（待确认具体 commit hash）
+- **研究日期**: 2026-03-06
+- **Commit**: `73055728318df378c831950cd01fb7c875a33790` (2026-03-05, version 2026.3.3)
 - **研究范围**: 第1层 - System Prompt 设计（模板系统、动态注入、Skills 发现机制）
 
 ---
@@ -304,6 +304,70 @@ Constraints: never read more than one skill up front; only read after selecting.
 ```
 
 **代码位置**：`src/agents/system-prompt.ts:15-33`
+
+### 2.6 Bootstrap 截断警告（Bootstrap Truncation Warning）
+
+当 Workspace Bootstrap 文件（AGENTS.md、SOUL.md 等）因字符限制被截断时，可通过配置控制是否在 System Prompt 中注入警告文本。
+
+**配置项**：`agents.defaults.bootstrapPromptTruncationWarning`
+
+| 值 | 行为 | 代码位置 |
+|----|------|---------|
+| `off` | 永不注入警告 | `src/agents/pi-embedded-helpers/bootstrap.ts:114-121` |
+| `once` | 每个唯一截断签名仅显示一次（默认，推荐） | `src/config/zod-schema.agent-defaults.ts:43-44` |
+| `always` | 每次存在截断时都显示警告 | `src/config/types.agent-defaults.ts:144-149` |
+
+**默认值**：`once`（代码位置：`src/agents/pi-embedded-helpers/bootstrap.ts:86`）
+
+**实现流程**：
+
+1. **截断分析**：`buildBootstrapInjectionStats` + `analyzeBootstrapBudget` 计算哪些文件被截断
+2. **签名生成**：`buildBootstrapTruncationSignature` 基于 `bootstrapMaxChars`、`bootstrapTotalMaxChars`、截断文件列表生成 JSON 签名
+3. **去重决策**：`buildBootstrapPromptWarning` 根据 `mode` 和 `seenSignatures` 决定是否显示
+4. **注入位置**：在 System Prompt 的 `# Project Context` 段落下，`⚠ Bootstrap truncation warning:` 后追加警告行
+
+**代码位置**：
+- 签名与去重逻辑：`src/agents/bootstrap-budget.ts:222-348`
+- System Prompt 注入：`src/agents/system-prompt.ts:635-640`
+- 配置解析：`src/agents/pi-embedded-helpers/bootstrap.ts:114-121`
+
+**警告签名元数据持久化与去重**：
+
+- **持久化**：`SessionSystemPromptReport.bootstrapTruncation` 包含 `warningSignaturesSeen`、`promptWarningSignature`、`warningMode` 等，写入 Session 元数据
+- **存储结构**：`src/config/sessions/types.ts:331-338`
+- **历史上限**：`warningSignaturesSeen` 最多保留 32 条（`DEFAULT_BOOTSTRAP_PROMPT_WARNING_SIGNATURE_HISTORY_MAX`）
+- **跨 Turn 传递**：`RunEmbeddedPiAgentParams` 的 `bootstrapPromptWarningSignaturesSeen`、`bootstrapPromptWarningSignature` 在每次 run 后更新并回传给 session store
+- **恢复逻辑**：`resolveBootstrapWarningSignaturesSeen` 从 session 的 `systemPromptReport.bootstrapTruncation` 恢复 `seenSignatures`，用于 `once` 模式去重
+
+**代码位置**：
+- 持久化类型：`src/config/sessions/types.ts:331-338`
+- 恢复函数：`src/agents/bootstrap-budget.ts:100-121`
+- Run 参数传递：`src/agents/pi-embedded-runner/run/params.ts:88-91`
+- 各 runtime 的传递链：`src/agents/pi-embedded-runner/run.ts:691-844`、`src/auto-reply/reply/agent-runner-execution.ts:129-448`、`src/commands/agent.ts:182-329`
+
+### 2.7 Session 启动日期接地（Date Grounding）
+
+为避免 Agent 根据训练截止日期猜测"今天"的日期，OpenClaw 在启动/重置场景下将 `YYYY-MM-DD` 占位符替换为运行时日期，并追加 `Current time:` 行。
+
+**YYYY-MM-DD 占位符替换**：
+
+| 场景 | 实现位置 | 说明 |
+|------|---------|------|
+| Post-compaction 上下文 | `src/auto-reply/reply/post-compaction-context.ts:31-86` | 从 AGENTS.md 提取 Session Startup / Red Lines 段落后，`replaceAll("YYYY-MM-DD", dateStamp)` |
+| Memory Flush 提示 | `src/auto-reply/reply/memory-flush.ts:42-57` | `resolveMemoryFlushPromptForRun` 将 prompt 中的 `YYYY-MM-DD` 替换为 `formatDateStampInTimezone` 结果 |
+
+**日期格式**：使用 `Intl.DateTimeFormat` 的 `formatToParts`，按用户时区输出 `YYYY-MM-DD`（代码位置：`post-compaction-context.ts:10-23`、`memory-flush.ts:26-39`）
+
+**`/new` 与 `/reset` 的 Current time 行**：
+
+- **触发条件**：用户发送裸命令 `/new` 或 `/reset` 时，使用 `buildBareSessionResetPrompt` 作为用户消息
+- **实现**：`appendCronStyleCurrentTimeLine` 在 prompt 末尾追加 `Current time: ${formattedTime} (${userTimezone})`
+- **代码位置**：`src/auto-reply/reply/session-reset-prompt.ts:1-22`
+- **调用链**：`get-reply-run.ts:289-293` 中 `isBareNewOrReset` 为 true 时，`baseBodyFinal = buildBareSessionResetPrompt(cfg)`
+
+**Current time 行格式**：`Current time: 2026-03-06 14:30 (America/Chicago)`（由 `resolveCronStyleNow` 生成，代码位置：`src/agents/current-time.ts:23-30`）
+
+**设计目的**：让 Agent 在 Session Startup 序列中正确解析 `memory/YYYY-MM-DD.md` 等路径，避免因训练数据截止日期导致错误年份的文件引用。
 
 ---
 
@@ -1051,6 +1115,21 @@ if (currentTokens > softThreshold && !session.memoryFlushed) {
 ```
 
 **持久化**：写入 `~/.openclaw/agents/<agentId>/sessions/<sessionId>.jsonl`
+
+#### Compaction 后上下文模板标题变更
+
+Post-compaction 时，系统从 AGENTS.md 提取关键段落注入到压缩后的上下文中。**当前优先匹配的标题**为 `Session Startup` 和 `Red Lines`，同时保留对旧版模板的兼容。
+
+| 优先标题（当前） | 兼容标题（Legacy） | 说明 |
+|-----------------|-------------------|------|
+| `## Session Startup` | `## Every Session` | 启动时需执行的读取顺序（SOUL.md、USER.md、memory/YYYY-MM-DD.md 等） |
+| `## Red Lines` | `## Safety` | 不可违反的规则（不泄露隐私、不执行破坏性命令等） |
+
+**实现**：`extractSections(content, ["Session Startup", "Red Lines"])` 优先；若未匹配到，则回退 `extractSections(content, ["Every Session", "Safety"])`。
+
+**代码位置**：`src/auto-reply/reply/post-compaction-context.ts:55-62`
+
+**模板定义**：`docs/reference/templates/AGENTS.md` 第 16 行为 `## Session Startup`，第 54 行为 `## Red Lines`。
 
 ### 7.4 Skills Snapshot（版本化快照）
 

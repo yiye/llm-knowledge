@@ -2,10 +2,11 @@
 
 ## 版本信息
 
-- **Commit**: `b9910ab03713d2598a5d4fcbf95c9dc935064b68`
-- **研究日期**: 2026-02-04
-- **文件范围**: `src/channels/`、`src/routing/`、`src/media/`、`src/telegram/`、`src/discord/`、`src/slack/` 等 Channel 相关模块
-- **注意**: 该分析基于 2026 年 2 月的代码，可能随版本更新而变化
+- **Commit**: `73055728318df378c831950cd01fb7c875a33790`
+- **版本**: 2026.3.3
+- **研究日期**: 2026-03-05
+- **文件范围**: `src/channels/`、`src/routing/`、`src/media/`、`src/telegram/`、`src/discord/`、`src/slack/`、`src/acp/`、`extensions/` 等 Channel 相关模块
+- **注意**: 该分析基于 2026 年 3 月的代码，可能随版本更新而变化
 
 ---
 
@@ -1557,7 +1558,109 @@ agentTools?: ChannelAgentToolFactory | ChannelAgentTool[];
 
 ---
 
-## 12. 待研究的问题
+## 12. 版本 2026.3.3 更新 (2026-03-05)
+
+本节记录基于 commit `73055728318df378c831950cd01fb7c875a33790` 的 Channel 集成层新增与变更。
+
+### 12.1 Discord 更新
+
+**Slash 命令处理**（`src/discord/monitor/message-handler.preflight.ts:289-294`）：
+
+- 拦截**文本式 slash 命令**（用户输入 `/reset` 等而非使用 Discord 原生 slash 选择器）
+- 这些消息不会转发给 Agent；slash 交互由 `native-command` 等模块处理
+- 实现：`hasControlCommand(baseText, params.cfg)` 检测并丢弃
+
+```typescript:289:294:src/discord/monitor/message-handler.preflight.ts
+  // Intercept text-only slash commands (e.g. user typing "/reset" instead of using Discord's slash command picker)
+  // These should not be forwarded to the agent; proper slash command interactions are handled elsewhere
+  if (!isDirectMessage && baseText && hasControlCommand(baseText, params.cfg)) {
+    logVerbose(`discord: drop text-based slash command ${message.id} (intercepted at gateway)`);
+    return null;
+  }
+```
+
+**Plugin 命令注册为原生命令**（`src/discord/monitor/provider.ts:129-157`）：
+
+- 通过 `getPluginCommandSpecs()` 获取插件命令并注册为 Discord 原生 slash 命令
+- 与现有命令冲突时跳过并记录警告
+
+**Auto  Presence 健康信号**（`src/discord/monitor/auto-presence.ts`）：
+
+- 运行时可用性驱动 presence 更新
+- 根据 `AuthProfileStore` 状态（healthy / degraded / exhausted）设置 `status` 和 `activities`
+- `gatewayConnected` 为 false 时使用 degraded 状态
+
+**allowBots: "mentions"**（`src/discord/monitor/message-handler.preflight.ts:153-155, 704-710`）：
+
+- 新增 `allowBots: "mentions"`：仅当 bot 消息被 @mention 时才处理
+- 模式：`off`（不处理 bot 消息）、`mentions`（需 mention）、`all`（全部处理）
+
+**Mention 处理改进**：
+
+- **ID 格式 mention**（`src/discord/mentions.ts:15-39`）：`formatMention({ userId })` 返回 `<@userId>` 格式
+- **缓存 rewrites**（`src/discord/mentions.ts:64-82`）：`rewriteDiscordKnownMentions()` 通过 `resolveDiscordDirectoryUserId()` 将 `@username` 转为 ID 格式
+- **ignoreOtherMentions**（`src/discord/monitor/message-handler.preflight.ts:713-732`）：当消息同时提到其他用户/角色时，若未 mention bot，则丢弃
+
+### 12.2 Telegram 更新
+
+**Streaming 默认值**（`src/config/discord-preview-streaming.ts:64-86`、`src/telegram/bot/helpers.ts:167-172`）：
+
+- `streaming` 未配置时默认 `"partial"`（之前为 `"off"`）
+- `resolveTelegramPreviewStreamMode()` 在无显式配置时返回 `"partial"`
+
+**disableAudioPreflight**（`src/telegram/bot-message-context.ts:475-490`）：
+
+- 群组/话题中 voice mention 的门控：`disableAudioPreflight: true` 时跳过音频预转录
+- 支持 topic 级覆盖 group 级配置
+
+**多账号默认路由**（`src/telegram/accounts.ts:90-96`）：
+
+- 多账号且未配置 `accounts.default` 时发出警告
+- 提示：`"Set channels.telegram.defaultAccount explicitly to avoid routing surprises in multi-account setups."`
+
+**Plugin 出站 Hook 对等**（`src/telegram/bot/delivery.replies.ts:454-455`）：
+
+- `message_sending` 和 `message_sent` 在 reply 投递中支持
+- 与 Discord 等 channel 的 hook 行为一致
+
+**设备配对通知**（`extensions/device-pair/index.ts:412-432`）：
+
+- 执行 `/pair qr` 时自动 arm 一次性 notify（`armPairNotifyOnce`）
+- 在 Telegram 中发送 QR 后，新设备配对请求到达时会自动 ping 该 chat
+
+### 12.3 ACP 持久化 Channel Binding
+
+**持久化存储**（`src/acp/persistent-bindings.types.ts`、`src/infra/outbound/session-binding-service.ts`）：
+
+- `SessionBindingRecord` 存储 channel + accountId + conversationId 绑定
+- `ConfiguredAcpBindingSpec` 支持 `discord` 和 `telegram` 两种 channel
+- Discord channel + Telegram topic 均可通过 binding 持久化
+
+**CLI / 文档**（`docs/gateway/configuration-reference.md:210, 317`）：
+
+- `bindings[]` 中 `type: "acp"` 配置持久化 ACP binding
+- `match.peer.id` 使用 `chatId:topic:topicId` 等格式
+
+### 12.4 Zalo / Zalouser 更新（BREAKING）
+
+**重构为原生 zca-js 集成**（`extensions/zalouser/`）：
+
+- 移除外部 CLI 依赖，改用 `zca-js` npm 包
+- `extensions/zalouser/src/zca-client.ts`：从 `zca-js` 导入 `Zalo`、`Reactions`、`ThreadType` 等
+- `extensions/zalouser/package.json`：依赖 `"zca-js": "2.1.1"`
+- 描述：`"Zalo personal account via QR code login."`
+
+### 12.5 Plugin 出站 / Text-Only 适配器
+
+**仅 sendText 的 direct-delivery 插件**（`src/infra/outbound/deliver.ts:148-201, 741-765`）：
+
+- 允许仅实现 `sendText`（无 `sendMedia`）的插件保持 outbound 能力
+- `createPluginHandler` 中 `supportsMedia: Boolean(sendMedia)`，`sendMedia` 缺失时回退到 `sendText` 发送 caption
+- 媒体 payload 时：`handler.supportsMedia` 为 false 则使用 `sendTextChunks(fallbackText)` 并记录警告（`media URLs will be dropped and text fallback will be used`）
+
+---
+
+## 13. 待研究的问题
 
 1. **Heartbeat Adapter 的具体实现**：各 Channel 的 Heartbeat Adapter 代码位置？如何发送定时消息？
 2. **Memory 索引的触发时机**：Transcript 文件变化后多久触发 Memory 索引？是否有批量索引优化？
@@ -1567,7 +1670,7 @@ agentTools?: ChannelAgentToolFactory | ChannelAgentTool[];
 
 ---
 
-## 13. 总结
+## 14. 总结
 
 OpenClaw 的 Channel 集成层通过**三层抽象**（Registry → Dock → Plugin）、**多维度路由**（Peer → Guild → Team → Account → Channel → Default）、**统一媒体 Pipeline**、**智能分块机制**、**DM 安全策略**等设计，实现了对 20+ 个消息平台的统一管理和动态扩展。
 
@@ -1589,5 +1692,5 @@ OpenClaw 的 Channel 集成层是整个系统的"消息枢纽"，为上层的 Ag
 
 ---
 
-**研究完成日期**: 2026-02-04  
+**研究完成日期**: 2026-03-05  
 **研究者**: 璇玑 ✨

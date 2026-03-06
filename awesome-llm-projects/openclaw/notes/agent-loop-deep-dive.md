@@ -1,7 +1,8 @@
 # OpenClaw Agent Loop 深度解析
 
 > **研究版本**: Git Submodule `awesome-llm-projects/openclaw/openclaw`  
-> **研究日期**: 2026-01-30  
+> **Commit**: `73055728318df378c831950cd01fb7c875a33790` (2026-03-05)  
+> **版本号**: 2026.3.3  
 > **核心目标**: 深入理解 OpenClaw Agent Loop 的完整执行流程，从消息接收到流式响应的全链路实现
 
 ---
@@ -515,7 +516,146 @@ export function normalizeTextForComparison(text: string): string {
 
 ---
 
-### 11. Failover Error 处理
+### 11. Tool Result 截断（Head+Tail 策略）
+
+**问题背景**：单个工具结果过大时会超出模型 context window，导致 context overflow。OpenClaw 对超长 tool result 进行截断，采用 **head+tail** 策略保留关键信息。
+
+**核心实现**（`src/agents/pi-embedded-runner/tool-result-truncation.ts`）：
+
+**截断策略**（`truncateToolResultText`，第 70-112 行）：
+
+1. **预算计算**：`budget = max(maxChars - suffix.length, MIN_KEEP_CHARS)`，`MIN_KEEP_CHARS = 2_000`
+2. **Tail 重要性检测**（`hasImportantTail`，第 51-60 行）：检查末尾 ~2000 字符是否包含：
+   - 错误关键词：`error|exception|failed|fatal|traceback|panic|stack trace|errno|exit code`
+   - JSON 闭合结构：`}\s*$`
+   - 摘要关键词：`total|summary|result|complete|finished|done`
+3. **Head+Tail 模式**（当 tail 重要且 `budget > minKeepChars * 2`）：
+   - `tailBudget = min(floor(budget * 0.3), 4_000)`
+   - `headBudget = budget - tailBudget - MIDDLE_OMISSION_MARKER.length`
+   - 在换行边界切分，保留 head + `[... middle content omitted ...]` + tail
+4. **默认模式**（仅保留开头）：在 `budget` 处或最近换行处截断，追加 suffix
+
+**截断后缀**（第 31-34 行）：
+```typescript
+const TRUNCATION_SUFFIX =
+  "\n\n⚠️ [Content truncated — original was too large for the model's context window. " +
+  "The content above is a partial view. If you need more, request specific sections or use " +
+  "offset/limit parameters to read smaller chunks.]";
+```
+
+**Context Guard 集成**（`src/agents/pi-embedded-runner/tool-result-context-guard.ts`）：
+
+- `installToolResultContextGuard` 注入 `transformContext`，在发送给 LLM 前对 messages 执行 `enforceToolResultContextBudgetInPlace`
+- 单条 tool result 上限：`contextWindowTokens * 0.5 * TOOL_RESULT_CHARS_PER_TOKEN_ESTIMATE`
+- 超限时用 `truncateTextToBudget` 截断，追加 `[truncated: output exceeded context limit]`
+- 若总 context 仍超预算，将最老的 tool result 替换为 `[compacted: tool output removed to free context]`
+
+**Session 持久化截断**（`truncateOversizedToolResultsInSession`，第 205-327 行）：
+
+- 遍历 session branch，找到超限的 tool result 条目
+- 从第一个超限条目的 parent 分支，重新 append 时对超限条目调用 `truncateToolResultMessage`
+
+---
+
+### 12. Bootstrap 截断警告（bootstrapPromptTruncationWarning）
+
+**配置项**：`config.agents.defaults.bootstrapPromptTruncationWarning`，取值 `"off" | "once" | "always"`，默认 `"once"`。
+
+**集成流程**（`src/agents/pi-embedded-runner/run/attempt.ts:720-734, 929-930`）：
+
+1. **Bootstrap 分析**：`analyzeBootstrapBudget` 基于 `buildBootstrapInjectionStats` 统计各 bootstrap 文件的 raw/injected 字符数，识别截断文件和原因（`per-file-limit` / `total-limit`）
+2. **警告模式解析**：`resolveBootstrapPromptTruncationWarningMode(params.config)` 读取配置
+3. **警告构建**：`buildBootstrapPromptWarning` 根据 `mode`、`seenSignatures`、`previousSignature` 决定是否展示警告
+   - `off`：不展示
+   - `once`：仅当本次截断 signature 未在 `seenSignatures` 中出现过时展示
+   - `always`：每次有截断都展示
+4. **System Prompt 注入**：`buildEmbeddedSystemPrompt` 接收 `bootstrapTruncationWarningLines`，在 `# Project Context` 下插入：
+   ```
+   ⚠ Bootstrap truncation warning:
+   - AGENTS.md: 200 raw -> 0 injected (~100% removed; max/file, max/total).
+   If unintentional, raise agents.defaults.bootstrapMaxChars and/or agents.defaults.bootstrapTotalMaxChars.
+   ```
+
+**代码位置**：
+- 配置解析：`src/agents/pi-embedded-helpers/bootstrap.ts:114-122`（`resolveBootstrapPromptTruncationWarningMode`）
+- 警告逻辑：`src/agents/bootstrap-budget.ts:299-328`（`buildBootstrapPromptWarning`）
+- System Prompt：`src/agents/system-prompt.ts:613-641`（`bootstrapTruncationWarningLines`）
+
+**Signature 去重**：`buildBootstrapTruncationSignature` 生成基于截断文件列表的 JSON signature，`warningSignaturesSeen` 最多保留 32 条，用于 `once` 模式避免重复提示。
+
+---
+
+### 13. xAI / Venice / Grok 兼容性
+
+**JSON Schema 关键词剥离**（`src/agents/schema/clean-for-xai.ts`）：
+
+xAI 会拒绝部分 JSON Schema 校验关键词，导致 502。在发送给 xAI 前需剥离：
+
+```typescript
+// 第 4-11 行
+export const XAI_UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
+  "minLength", "maxLength", "minItems", "maxItems", "minContains", "maxContains",
+]);
+```
+
+`stripXaiUnsupportedKeywords` 递归遍历 schema，移除上述 keyword；对 `properties`、`items`、`anyOf`/`oneOf`/`allOf` 递归处理。
+
+**Provider 识别**（`isXaiProvider`，第 46-60 行）：
+- 直接：`provider` 包含 `xai` 或 `x-ai`
+- OpenRouter：`provider === "openrouter"` 且 `modelId` 以 `x-ai/` 开头
+- Venice：`provider === "venice"` 且 `modelId` 包含 `grok`（含 `venice/grok-4.1-fast`）
+
+**Tool Schema 应用**（`src/agents/pi-tools.schema.ts:91-98`）：`normalizeToolParametersForProvider` 在 `isXaiProvider` 为真时对 schema 调用 `stripXaiUnsupportedKeywords`。
+
+**Tool Call 参数 HTML 实体解码**（`src/agents/pi-embedded-runner/run/attempt.ts:426-527, 1266-1269`）：
+
+xAI/Grok 有时在 tool call arguments 中返回 HTML 实体（如 `&#39;`、`&quot;`）。OpenClaw 在流式响应中包装 `streamFn`，对 `toolCall` 的 `arguments` 做解码：
+
+```typescript
+// 第 429-441 行
+const HTML_ENTITY_RE = /&(?:amp|lt|gt|quot|apos|#39|#x[0-9a-f]+|#\d+);/i;
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/gi, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10)));
+}
+```
+
+`decodeHtmlEntitiesInObject` 递归处理对象/数组/字符串；`wrapStreamFnDecodeXaiToolCallArguments` 在 `stream.result` 和 `Symbol.asyncIterator` 的 `next` 中对 `event.partial`、`event.message` 调用 `decodeXaiToolCallArgumentsInMessage`。
+
+**触发条件**：`isXaiProvider(params.provider, params.modelId)` 为真时，在 `attempt.ts:1266-1269` 对 `activeSession.agent.streamFn` 应用该包装。
+
+---
+
+### 14. Thinking Tag 提升与畸形内容处理
+
+**`promoteThinkingTagsToBlocks`**（`src/agents/pi-embedded-utils.ts:332-377`）：
+
+将文本块中的 `<think>...</think>`、`<antthinking>...</antthinking>` 等标签提升为结构化 `{ type: "thinking", thinking: "..." }` 块，供下游正确解析推理内容。
+
+**畸形内容防护**（第 346-358 行）：
+
+1. **null/undefined 条目**：`if (!block || typeof block !== "object" || !("type" in block))` 时直接 `next.push(block)`，不处理
+2. **非 text 块**：`block.type !== "text"` 时原样保留
+3. **无有效 split**：`splitThinkingTaggedText(block.text)` 返回 `null` 时原样保留
+
+**调用点**：`src/agents/pi-embedded-subscribe.handlers.messages.ts:264`，在 `message_end` 的 `handleMessageEnd` 中对 `assistantMessage` 调用 `promoteThinkingTagsToBlocks`，写入 session 前完成提升。
+
+**测试覆盖**（`src/agents/pi-embedded-utils.test.ts:553-584`）：
+- `content` 中含 `null`、`undefined` 时不抛错，且能正确提升含标签的 text 块
+- 无 thinking 标签时内容不变
+
+**`splitThinkingTaggedText` 校验**（第 265-280 行）：仅当文本以 `<` 开头、匹配 open/close 正则、且存在闭合标签时才解析；未闭合的 `<think>` 返回 `null`，避免误解析。
+
+---
+
+### 15. Failover Error 处理
 
 **FailoverError 类**（`src/agents/failover-error.ts:6-35`）：
 
@@ -588,7 +728,7 @@ try {
 
 ---
 
-### 12. Timeout 和 Abort 控制
+### 16. Timeout 和 Abort 控制
 
 **Timeout 设置**（`src/agents/pi-embedded-runner/run/attempt.ts:638-660`）：
 
@@ -676,7 +816,7 @@ await abortable(activeSession.prompt(effectivePrompt));
 
 ---
 
-### 13. Plugin Hook 集成
+### 17. Plugin Hook 集成
 
 **Hook 点**（`src/agents/pi-embedded-runner/run/attempt.ts:680-833`）：
 
@@ -750,7 +890,7 @@ if (hookRunner?.hasHooks("agent_end")) {
 
 ---
 
-### 14. 最终 Payload 构建
+### 18. 最终 Payload 构建
 
 **函数**：`buildEmbeddedRunPayloads`（`src/agents/pi-embedded-runner/run/payloads.ts`）
 

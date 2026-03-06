@@ -3,12 +3,12 @@
 ## 版本信息
 
 - **Git Repository**: https://github.com/openclaw/openclaw
-- **Commit Hash**: `6af205a13adfec1fd1eb27d2f3d3546b0b4e8f86`
-- **Version**: `2026.1.29` (来自 `package.json:3`)
-- **Latest Commit**: Peter Steinberger, 2026-01-30 07:26:07 +0000
-- **研究日期**: 2026-01-30
+- **Commit Hash**: `73055728318df378c831950cd01fb7c875a33790`
+- **Version**: `2026.3.3` (来自 `package.json:3`)
+- **Latest Commit**: 2026-03-05
+- **研究日期**: 2026-03-05
 - **GitHub Stars**: 109k (截至 2026 年 1 月)
-- **注意**: 该分析基于 2026 年 1 月底的代码，项目处于活跃开发状态
+- **注意**: 该分析基于 2026 年 3 月初的代码；此前基于 2026-01-30 的版本，项目处于活跃开发状态
 
 ## 一、架构理念与核心定位
 
@@ -262,7 +262,7 @@ Client                    Gateway
    - Lifecycle events: start, end, error
 
 2. **Tool System** (`tools/`, 57+ files; `openclaw-tools.ts`)
-   - 内置工具: bash, read, write, edit, browser, canvas, nodes, cron, sessions_*, image, web
+   - 内置工具: bash, read, write, edit, browser, canvas, nodes, cron, sessions_*, image, web, pdf
    - Tool 注册: `createOpenClawTools` 统一注册入口
    - Tool policy: sandbox allowlist/denylist
    - Plugin tools: 动态加载第三方工具
@@ -378,7 +378,7 @@ export type ChannelPlugin<ResolvedAccount = any> = {
 | - | Extensions | 547 | TypeScript | 20+ 扩展插件 |
 | - | Docs | 296 | Markdown | 完善的文档 |
 | - | Skills | 58 | Markdown/Python | 内置 skills |
-| **总计** | - | **2,502 TS + 413 Swift + 63 Kotlin** | - | **3,000+ files** |
+| **总计** | - | **~5,600+ TS + 413 Swift + 63 Kotlin** | - | **6,000+ files** (src/ 约 4,400+ TS 文件，较 2026.1 显著增长) |
 
 **测试覆盖率**: 70% (lines, functions, branches, statements) - 来自 `package.json:262-267`
 
@@ -468,6 +468,8 @@ src/telegram/
 }
 ```
 
+**tools.profile 默认变更 (BREAKING)**：新安装默认 `tools.profile: "messaging"`，不再默认开放 coding/system 工具；已有显式配置保持不变 (见 `docs/start/wizard.md:53`、`docs/gateway/configuration-reference.md:1669`、CHANGELOG 2026.3.2)。
+
 **Session 存储** (来自 `src/gateway/session-utils.ts`):
 ```
 ~/.openclaw/sessions/
@@ -490,7 +492,7 @@ src/telegram/
 - `sessions_list`: 发现活跃 sessions 和元数据
 - `sessions_history`: 获取 session transcript logs
 - `sessions_send`: 向另一个 session 发送消息 (可选 reply-back ping-pong)
-- `sessions_spawn`: 创建新 session (例如 sub-task delegation)
+- `sessions_spawn`: 创建新 session (例如 sub-task delegation)；支持 **inline file attachments** (base64/utf8 编码)，通过 `tools.sessions_spawn.attachments` 配置限制 (见 `src/agents/subagent-spawn.ts:504-548`、CHANGELOG 2026.3.2)
 
 ### 3.3 Tool System (能力扩展)
 
@@ -537,9 +539,11 @@ export function createOpenClawTools(opts: CreateOpenClawToolsOptions): AnyAgentT
 3. **Browser Tools**: browser.navigate, browser.snapshot, browser.action (浏览器控制)
 4. **Canvas Tools**: canvas.push, canvas.reset, canvas.eval (Canvas 操作)
 5. **Node Tools**: node.invoke (设备本地命令: camera, screen, location)
-6. **Session Tools**: sessions_list, sessions_history, sessions_send (Agent 协作)
+6. **Session Tools**: sessions_list, sessions_history, sessions_send, sessions_spawn (Agent 协作)
 7. **Cron Tools**: cron.create, cron.list, cron.delete (定时任务)
 8. **Channel Tools**: discord.send_message, slack.post (平台特定操作)
+9. **PDF Tools**: pdf, pdfs (PDF 分析，支持 Anthropic/Google 原生 PDF API 及 extraction fallback，见 `docs/tools/pdf.md`、`src/agents/tools/pdf-tool.ts`)
+10. **Web Tools**: web_search, web_fetch (网络搜索与抓取；`web_search` 已从 Perplexity 直连切换为 **Search API**，支持结构化结果及 language/region/time 过滤，见 `docs/tools/web.md`、`src/agents/tools/web-search.ts`、CHANGELOG #33822)
 
 ### 3.4 Gateway 运行时状态管理
 
@@ -750,7 +754,7 @@ type GatewayRuntimeState = {
 
 - **Node.js**: >=22.12.0 (来自 `package.json:152-154`)
 - **Package Manager**: pnpm@10.23.0 (来自 `package.json:155`)
-- **Language**: TypeScript 5.9.3 (来自 `package.json:240`)
+- **Language**: TypeScript ^5.9.3 (来自 `package.json:357`)
 
 **选型理由**:
 - **Node.js 22+**: 
@@ -769,10 +773,10 @@ type GatewayRuntimeState = {
 ### 5.2 核心依赖 (package.json:156-209)
 
 #### Agent Runtime (Pi-embedded)
-- `@mariozechner/pi-agent-core: 0.49.3` - Pi agent 核心运行时
-- `@mariozechner/pi-ai: 0.49.3` - Pi AI 模型接口
-- `@mariozechner/pi-coding-agent: 0.49.3` - 代码 agent 支持
-- `@mariozechner/pi-tui: 0.49.3` - Terminal UI
+- `@mariozechner/pi-agent-core: 0.55.3` - Pi agent 核心运行时
+- `@mariozechner/pi-ai: 0.55.3` - Pi AI 模型接口
+- `@mariozechner/pi-coding-agent: 0.55.3` - 代码 agent 支持
+- `@mariozechner/pi-tui: 0.55.3` - Terminal UI
 
 **选型理由**:
 - **Pi-embedded 架构**: 将 Agent 嵌入 Gateway 进程 (RPC mode)
@@ -810,8 +814,7 @@ type GatewayRuntimeState = {
 - `@line/bot-sdk: ^10.6.0` - LINE messaging
 
 #### Browser & Automation
-- `playwright-core: 1.58.0` - Browser control (CDP)
-- `chromium-bidi: 13.0.1` - Chrome BiDi protocol
+- `playwright-core: 1.58.2` - Browser control (CDP)
 
 #### WebSocket & Network
 - `ws: ^8.19.0` - WebSocket server
@@ -819,7 +822,7 @@ type GatewayRuntimeState = {
 - `undici: ^7.19.0` - HTTP client
 
 #### Schema & Validation
-- `@sinclair/typebox: 0.34.47` - TypeBox schemas (强制固定版本)
+- `@sinclair/typebox: 0.34.48` - TypeBox schemas (强制固定版本)
 - `ajv: ^8.17.1` - JSON schema validator
 - `zod: ^4.3.6` - TypeScript-first schema validation
 
@@ -827,7 +830,7 @@ type GatewayRuntimeState = {
 - `sharp: ^0.34.5` - 图片处理
 - `@napi-rs/canvas: ^0.1.88` (可选) - Canvas 渲染
 - `file-type: ^21.3.0` - 文件类型检测
-- `pdfjs-dist: ^5.4.530` - PDF 解析
+- `pdfjs-dist: ^5.5.207` - PDF 解析
 
 #### CLI & Terminal
 - `commander: ^14.0.2` - CLI framework
@@ -842,11 +845,11 @@ type GatewayRuntimeState = {
 - `proper-lockfile: ^4.1.2` - 文件锁
 
 #### 其他关键依赖
-- `@agentclientprotocol/sdk: 0.13.1` - Agent Client Protocol (ACP)
-- `croner: ^9.1.0` - Cron jobs
+- `@agentclientprotocol/sdk: 0.14.1` - Agent Client Protocol (ACP)
+- `croner: ^10.0.1` - Cron jobs
 - `node-edge-tts: ^1.2.9` - TTS (Text-to-Speech)
 - `express: ^5.2.1` - HTTP server
-- `hono: 4.11.4` - 轻量级 web framework
+- `hono: 4.12.5` - 轻量级 web framework (pnpm override)
 - `chokidar: ^5.0.0` - 文件监控 (hot reload)
 
 ### 开发依赖
@@ -996,6 +999,7 @@ openclaw/
 - `openclaw channels login` - Channel 登录
 - `openclaw doctor` - 诊断配置问题
 - `openclaw pairing approve` - 批准 pairing 请求
+- `openclaw config validate` - 验证配置文件 (支持 `--json` 输出)，可在 Gateway 启动前检查配置 (见 `docs/cli/config.md:23-24`、CHANGELOG #31220)
 
 #### 6. Configuration (130 files)
 **位置**: `src/config/`
@@ -1074,6 +1078,10 @@ openclaw/
 - `hooks.ts` - Hook 系统
 - `tools.ts` - 插件工具加载
 - `runtime/` - 插件运行时
+
+**Plugin SDK 与启动优化** (2026.3):
+- **Plugin SDK 子路径**：支持按 channel 导入，如 `openclaw/plugin-sdk/core`、`openclaw/plugin-sdk/telegram`、`openclaw/plugin-sdk/discord` 等 (见 `package.json:42-218` exports)
+- **Plugin 懒加载**：插件运行时延迟初始化，启动关键导入拆分为 `openclaw/plugin-sdk/core` 与 `openclaw/plugin-sdk/telegram`，减少启动开销 (CHANGELOG #28620、#33690)
 
 #### 13. Security (9 files)
 **位置**: `src/security/`

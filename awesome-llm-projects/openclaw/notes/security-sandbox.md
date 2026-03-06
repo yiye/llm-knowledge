@@ -2,9 +2,9 @@
 
 ## 📋 版本信息
 
-- **研究日期**: 2026-02-04
+- **研究日期**: 2026-03-05
 - **项目**: OpenClaw (https://github.com/openclaw/openclaw)
-- **Commit**: 待补充
+- **Commit**: 73055728318df378c831950cd01fb7c875a33790 (2026-03-05, version 2026.3.3)
 - **研究者**: 璇玑
 
 ---
@@ -202,6 +202,24 @@ export function buildDeviceAuthPayload(params: DeviceAuthPayloadParams): string 
 - Loopback 连接自动信任
 - 同一 Tailnet 地址的 Gateway host 自动信任
 - 其他 Tailnet peer 仍需手动批准
+
+### 1.4 Gateway 默认 HTTP 安全头
+
+**文件**: `src/gateway/http-common.ts`
+
+Gateway 对所有 HTTP 响应应用基线安全头（API JSON、HTML 页面、静态资源、SSE 流均适用）：
+
+```typescript
+// src/gateway/http-common.ts:11-21
+export function setDefaultSecurityHeaders(res, opts?) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  // ...
+}
+```
+
+**Permissions-Policy** 显式禁用摄像头、麦克风、地理定位，降低 Web 页面被滥用访问设备传感器的风险。
 
 ---
 
@@ -586,7 +604,12 @@ export type SecurityAuditReport = {
 6. **Plugins**
    - Extensions exist without explicit allowlist
 
-7. **Model Hygiene**
+7. **gateway.nodes.denyCommands 无效条目**
+   - 仅支持**精确命令名匹配**（如 `system.run`），不支持通配符（如 `system.*`）或 shell 文本过滤
+   - 审计会对未知/无效条目**建议可能的精确 node command ID**（如 `system.run.prep` → `did you mean: system.run`），便于用户修正
+   - **源码**: `src/security/audit-extra.sync.ts:970-1024` (`collectNodeDenyCommandPatternFindings`)，`suggestKnownNodeCommands` 提供前缀匹配和模糊建议
+
+8. **Model Hygiene**
    - Configured models look legacy (< 2024)
 
 **关键检查逻辑**:
@@ -1029,6 +1052,19 @@ make pairing-race-negative
 
 ---
 
+## 📦 依赖安全更新 (2026.3.3)
+
+**`package.json` 与 pnpm overrides**:
+
+| 依赖 | 版本 | 说明 |
+|------|------|------|
+| `tar` | 7.5.10 | 从 7.5.9 升级，修复 GHSA-qffp-2rhf-9h96 |
+| `hono` | 4.12.5 | 通过 pnpm override 固定版本 |
+
+**源码位置**: `package.json:334` (dependencies.tar)、`package.json:364-368` (pnpm.overrides)
+
+---
+
 ## 🔗 关键文件索引
 
 ### 核心安全实现
@@ -1043,6 +1079,7 @@ make pairing-race-negative
 | `src/security/audit.ts` | 986+ | 安全审计工具 | 126-192 (filesystem), 85-99 (count severity) |
 | `src/gateway/exec-approval-manager.ts` | 83 | Exec 审批管理 | 32-82 (class impl) |
 | `src/gateway/device-auth.ts` | 31 | 设备认证 | 13-31 (buildDeviceAuthPayload) |
+| `src/gateway/http-common.ts` | 108 | HTTP 安全头 | 11-21 (setDefaultSecurityHeaders, Permissions-Policy) |
 
 ### 文档
 
@@ -1065,5 +1102,5 @@ make pairing-race-negative
 
 ---
 
-**研究完成时间**: 2026-02-04
-**下次更新**: 待补充 commit hash 和实际测试结果
+**研究完成时间**: 2026-03-05
+**代码引用**: 基于 OpenClaw 2026.3.3 (commit 73055728318df378c831950cd01fb7c875a33790)

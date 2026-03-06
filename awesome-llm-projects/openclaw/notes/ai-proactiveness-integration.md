@@ -1,7 +1,8 @@
 # OpenClaw AI 主动性深度解析 - Heartbeat/Memory/Skills 如何集成到 Agent Loop
 
 > **研究版本**: Git Submodule `awesome-llm-projects/openclaw/openclaw`  
-> **研究日期**: 2026-01-30  
+> **Commit**: `73055728318df378c831950cd01fb7c875a33790` (2026-03-05, version 2026.3.3)  
+> **研究日期**: 2026-03-06  
 > **核心目标**: 深度剖析 OpenClaw 最具创新性的"AI 主动性三大特性"，理解如何将 AI 从"被动响应的工具"进化为"主动察觉的助手"
 
 ---
@@ -498,6 +499,60 @@ Heartbeat run 有特殊的 `Provider: "heartbeat"` 标记，用于：
 
 ---
 
+### 1.5.1 Exec Heartbeat 路由（Session 作用域）
+
+**核心文件**：`src/routing/session-key.ts:32-37`、`src/agents/bash-tools.exec-runtime.ts`、`src/gateway/server-node-events.ts:580`
+
+**设计目标**：Exec 事件（异步命令完成）触发的 Heartbeat 应只唤醒对应的 Agent Session，避免无关 Agent 被误唤醒。
+
+**实现**：`scopedHeartbeatWakeOptions` 函数根据 `sessionKey` 是否为规范格式（`agent:main:main`）决定是否在 wake 选项中附加 `sessionKey`：
+
+```typescript
+// src/routing/session-key.ts:32-37
+export function scopedHeartbeatWakeOptions<T extends object>(
+  sessionKey: string,
+  wakeOptions: T,
+): T | (T & { sessionKey: string }) {
+  return parseAgentSessionKey(sessionKey) ? { ...wakeOptions, sessionKey } : wakeOptions;
+}
+```
+
+**调用位置**：
+- `src/agents/bash-tools.exec-runtime.ts:243,271`：exec 命令退出时调用 `requestHeartbeatNow(scopedHeartbeatWakeOptions(sessionKey, { reason: "exec-event" }))`
+- `src/gateway/server-node-events.ts:580`：Node 生命周期事件（exec 完成）同样使用 scoped 调用
+
+**CHANGELOG 引用**：Exec heartbeat routing: scope exec-triggered heartbeat wakes to agent session keys so unrelated agents are no longer awakened by exec events (#32724)
+
+---
+
+### 1.5.2 requestHeartbeatNow - 扩展 API
+
+**核心文件**：`src/plugins/runtime/runtime-system.ts:1-14`、`src/plugins/runtime/types-core.ts:18`、`src/infra/heartbeat-wake.ts:228-241`
+
+**API 签名**：`runtime.system.requestHeartbeatNow(opts?: { reason?: string; coalesceMs?: number; agentId?: string; sessionKey?: string })`
+
+**用途**：扩展（Plugins）在入队系统事件后，可立即请求 Heartbeat 唤醒，让 Agent 尽快处理事件（如 exec 完成、通知到达等）。
+
+**实现**：Plugin Runtime 直接暴露 `requestHeartbeatNow`（来自 `heartbeat-wake.js`）：
+
+```typescript
+// src/plugins/runtime/runtime-system.ts:7-13
+export function createRuntimeSystem(): PluginRuntime["system"] {
+  return {
+    enqueueSystemEvent,
+    requestHeartbeatNow,
+    runCommandWithTimeout,
+    formatNativeDependencyHint,
+  };
+}
+```
+
+**典型用法**：扩展在 `enqueueSystemEvent` 后调用 `requestHeartbeatNow({ reason: "exec-event", sessionKey })`，使目标 Session 的 Heartbeat 尽快执行。
+
+**CHANGELOG 引用**：Plugin runtime/system: expose `runtime.system.requestHeartbeatNow(...)` so extensions can wake targeted sessions immediately after enqueueing system events (#19464)
+
+---
+
 ### 1.6 Active Hours - 时区感知的智能调度
 
 **核心文件**：`src/infra/heartbeat-runner.ts:100-172`
@@ -693,6 +748,72 @@ if (!shouldSkipMain && normalized.text.trim()) {
   }
 }
 ```
+
+---
+
+## 📎 补充：工具结果截断、Bootstrap 警告与 Session 日期锚定
+
+### 工具结果截断（Head+Tail）
+
+**核心文件**：`src/agents/pi-embedded-runner/tool-result-truncation.ts`、`src/agents/session-tool-result-guard.ts`
+
+**设计目标**：超大 tool result 会占满 context window，需在持久化前截断，避免后续 LLM 调用失败。
+
+**Head+Tail 策略**（`tool-result-truncation.ts:70-112`）：
+
+1. **默认**：保留开头，超出 `maxChars` 时截断并追加 suffix
+2. **智能 Head+Tail**：当尾部包含重要内容（error、exception、JSON 闭合、summary 等）时，将预算分配给 head 和 tail，中间用 `MIDDLE_OMISSION_MARKER` 省略
+
+```typescript
+// src/agents/pi-embedded-runner/tool-result-truncation.ts:84-102
+if (hasImportantTail(text) && budget > minKeepChars * 2) {
+  const tailBudget = Math.min(Math.floor(budget * 0.3), 4_000);
+  const headBudget = budget - tailBudget - MIDDLE_OMISSION_MARKER.length;
+  // ...
+  return text.slice(0, headCut) + MIDDLE_OMISSION_MARKER + text.slice(tailStart) + suffix;
+}
+```
+
+**持久化时应用**（`session-tool-result-guard.ts:189-193`）：`capToolResultSize` 在 `appendMessage` 写入前调用 `truncateToolResultMessage`，使用 `HARD_MAX_TOOL_RESULT_CHARS`（400_000）和 `minKeepChars: 2_000`。
+
+**两处截断**：
+- **LLM 调用前**：`pi-embedded-subscribe.tools.ts` 的 `sanitizeToolResult` 对单次 tool 返回做 8000 字符截断（流式场景）
+- **Session 持久化**：`session-tool-result-guard` 对写入 JSONL 的 toolResult 做 head+tail 截断（400K 硬上限）
+
+---
+
+### Bootstrap 截断警告（bootstrapPromptTruncationWarning）
+
+**配置项**：`agents.defaults.bootstrapPromptTruncationWarning`（`off` | `once` | `always`，默认 `once`）
+
+**核心文件**：`src/config/zod-schema.agent-defaults.ts:43-45`、`src/agents/bootstrap-budget.ts`、`src/agents/pi-embedded-helpers/bootstrap.ts:115-123`
+
+**用途**：当 Bootstrap 上下文（AGENTS.md、TOOLS.md 等）因 `bootstrapMaxChars`/`bootstrapTotalMaxChars` 被截断时，在 System Prompt 中注入警告文本，告知模型有内容被截断。
+
+**模式**：
+- `off`：不注入警告
+- `once`：对同一截断签名只显示一次（推荐，避免重复打扰）
+- `always`：每次有截断都显示
+
+**实现**：`resolveBootstrapPromptTruncationWarningMode` 读取配置；`buildBootstrapTruncationSignature` 生成签名；`formatBootstrapTruncationWarningLines` 生成警告行；通过 `bootstrapTruncationReportMeta` 持久化 `warningSignaturesSeen` 实现 once 去重。
+
+**文档**：`docs/gateway/configuration-reference.md:806-818`
+
+---
+
+### Session 启动日期锚定（YYYY-MM-DD 占位符替换）
+
+**核心文件**：`src/auto-reply/reply/post-compaction-context.ts:26-76`、`src/auto-reply/reply/memory-flush.ts:49-50`
+
+**设计目标**：AGENTS.md 中常引用 `memory/YYYY-MM-DD.md`，若直接使用字面量，模型可能猜错日期。在 Session 启动/压缩后注入的上下文中，将 `YYYY-MM-DD` 替换为运行时日期。
+
+**替换位置**：
+1. **Post-compaction 上下文**：`readPostCompactionContext` 从 AGENTS.md 提取 "Session Startup"、"Red Lines" 等段落，`replaceAll("YYYY-MM-DD", dateStamp)` 后注入，并追加 `Current time:` 行
+2. **Memory flush prompt**：`memory-flush.ts:50` 对 `params.prompt` 做 `replaceAll("YYYY-MM-DD", dateStamp)`
+
+**时区**：使用 `resolveUserTimezone(cfg?.agents?.defaults?.userTimezone)` 格式化日期。
+
+**CHANGELOG 引用**：Agents/Session startup date grounding: substitute `YYYY-MM-DD` placeholders in startup/post-compaction AGENTS context and append runtime current-time lines for `/new` and `/reset` prompts (#32381)
 
 ---
 

@@ -2,9 +2,10 @@
 
 ## 📌 版本信息
 
-- **Commit**: `b9910ab03713d2598a5d4fcbf95c9dc935064b68`
-- **研究日期**: 2026-02-04
-- **注意**: 该分析基于 2026 年 2 月的代码，可能随版本更新而变化
+- **Commit**: `73055728318df378c831950cd01fb7c875a33790`
+- **版本**: 2026.3.3
+- **研究日期**: 2026-03-05
+- **注意**: 该分析基于 2026 年 3 月的代码，可能随版本更新而变化
 
 ---
 
@@ -72,6 +73,7 @@ export function createOpenClawTools(options?: {
    - `createSessionStatusTool()` - Session 状态
    - `createWebSearchTool()` / `createWebFetchTool()` - Web 工具（可选）
    - `createImageTool()` - 图片分析（可选，依赖 imageModel 配置）
+   - `createPdfTool()` - PDF 分析（可选，依赖 agentDir + pdfModel 配置）
 
 2. **插件工具加载**：
    ```typescript
@@ -106,6 +108,40 @@ export function createOpenClawTools(options?: {
 2. **Provider Schema 适配**：自动调用 `normalizeToolParameters()` 处理不同 Provider 的 Schema 差异
 3. **Claude 兼容性**：为 Claude 模型注入 `CLAUDE_PARAM_GROUPS` 参数组（`path_and_range`、`insert_opts`、`command_opts`）
 4. **Channel-specific tools**：根据 Channel 动态加载 Discord/Slack/Telegram/WhatsApp 特定工具
+
+### 1.3 PDF 工具：`createPdfTool`
+
+**位置**：`src/agents/tools/pdf-tool.ts:294-426`
+
+**工厂函数**：
+
+```typescript
+export function createPdfTool(options?: {
+  config?: OpenClawConfig;
+  agentDir?: string;
+  workspaceDir?: string;
+  sandbox?: PdfSandboxConfig;
+  fsPolicy?: ToolFsPolicy;
+}): AnyAgentTool | null
+```
+
+**核心能力**：
+
+1. **Native PDF 支持**（`src/agents/tools/pdf-native-providers.ts`）：
+   - **Anthropic**：通过 Messages API 直接发送 `type: "document"` + `media_type: "application/pdf"`（`anthropicAnalyzePdf`）
+   - **Google**：通过 Gemini `generateContent` API 发送 `inline_data` PDF（`geminiAnalyzePdf`）
+   - Provider 检测：`NATIVE_PDF_PROVIDERS = new Set(["anthropic", "google"])`（`pdf-tool.helpers.ts:17`）
+
+2. **Extraction 回退**：非 Native Provider（如 OpenAI）时，使用 `extractPdfContent` 提取文本+图片，再送入多模态模型分析
+
+3. **配置项**（`agents.defaults`）：
+   - `pdfModel`：主模型 + fallbacks（`{ primary, fallbacks }`），未配置时回退到 `imageModel` 再回退到 provider 默认
+   - `pdfMaxBytesMb`：单 PDF 最大字节数（默认 10 MB，`pdf-tool.ts:44`）
+   - `pdfMaxPages`：提取模式下最大页数（默认 20，`pdf-tool.ts:45`）
+
+4. **工具参数**：`pdf` / `pdfs`（路径或 URL）、`prompt`、`pages`（页范围，仅 extraction 模式支持）、`model`、`maxBytesMb`
+
+**注册条件**：需 `agentDir` 且 `resolvePdfModelConfigForTool` 返回有效配置（`openclaw-tools.ts:92-93`）
 
 ---
 
@@ -331,6 +367,12 @@ const TOOL_PROFILES: Record<ToolProfileId, ToolProfilePolicy> = {
   full: {},  // 无限制（等同于不设置）
 };
 ```
+
+**BREAKING：Onboarding 默认 profile**（`src/commands/onboard-config.ts:6,29-31`）：
+
+- 新安装（交互式 + 非交互式）默认 `tools.profile: "messaging"`
+- `applyOnboardingLocalWorkspaceConfig` 在未配置时设置 `ONBOARDING_DEFAULT_TOOLS_PROFILE = "messaging"`
+- 已有显式 `tools.profile` 的配置会被保留，不会被覆盖
 
 **配置示例**：
 
@@ -569,11 +611,21 @@ const NODES_TOOL_ACTIONS = [
   "camera_snap",    // 拍照（前置/后置/双摄）
   "camera_list",    // 列出可用摄像头
   "camera_clip",    // 录制视频片段
+  "photos_latest",  // 获取最新照片（iOS/Android photos.latest）
   "screen_record",  // 屏幕录制
   "location_get",   // 获取 GPS 位置
   "run",            // 执行命令（macOS/iOS/Android system.run）
+  "invoke",         // 通用 node.invoke（受限）
 ] as const;
 ```
+
+**Nodes 更新（2026.3）**（`src/agents/tools/nodes-tool.ts`）：
+
+1. **`photos_latest` action**（行 333-428）：专用 action 调用 `photos.latest` 命令，支持 `limit`、`maxWidth`、`quality`，返回图片 + MEDIA 标记，空结果统一返回 `{ content: [], details: [] }`
+
+2. **Media-returning invoke 命令被阻止**（行 756-761）：`camera.snap`、`camera.clip`、`photos.latest`、`screen.record` 等返回媒体 payload 的 invoke 命令在 Agent 上下文中被阻止，需使用对应专用 action（`camera_snap`、`photos_latest` 等），避免 base64 上下文膨胀；仅当 `allowMediaInvokeCommands` 为 true 时允许（`openclaw-tools.ts:63`）
+
+3. **`camera.list` metadata-only 仍允许**：`camera.list` 不在 `MEDIA_INVOKE_ACTIONS` 中（行 59-65），仅返回元数据（摄像头列表）不返回媒体，故 `action=invoke` + `invokeCommand=camera.list` 仍可用；专用 action `camera_list` 也通过 `NODE_READ_ACTION_COMMANDS` 调用同一命令（行 66-72）
 
 ### 5.2 跨设备调用机制：`node.invoke`
 
@@ -1099,7 +1151,20 @@ export function createMemorySearchTool(options: {
 3. **上下文注入**：Agent 通过 `memory_search` 获取相关历史信息 → 注入到当前对话上下文
 4. **Session Transcript 自动同步**：对话历史 (`~/.openclaw/agents/<agentId>/sessions/*.jsonl`) 自动索引到 Memory（可选）
 
-### 8.3 Skills 相关工具：`skill_search` + `skill_install`（待实现）
+### 8.3 Media 音频回显：`echoTranscript` + `echoFormat`
+
+**位置**：`src/media-understanding/echo-transcript.ts`、`src/media-understanding/apply.ts:534-539`、`src/config/zod-schema.core.ts:684-685`
+
+**配置**（`tools.media.audio`）：
+
+- `echoTranscript`（默认 `false`）：是否在 Agent 处理前将转录文本回显到发起聊天的 Channel
+- `echoFormat`：回显格式字符串，支持 `{transcript}` 占位符，默认 `'📝 "{transcript}"'`
+
+**流程**：语音消息 → 转录 → 若 `echoTranscript=true` 则 `sendTranscriptEcho` 发送到 `ctx.OriginatingTo` → 再进入 Agent 处理
+
+**类型定义**：`src/config/types.tools.ts:99-104`
+
+### 8.4 Skills 相关工具：`skill_search` + `skill_install`（待实现）
 
 **预期位置**：`src/agents/tools/skill-*-tool.ts`（计划中，第10层专题研究时详细分析）
 
@@ -1213,8 +1278,13 @@ User Message
 - **Schema 适配**：`src/agents/pi-tools.schema.ts`, `src/agents/schema/clean-for-gemini.ts`
 - **Memory 工具**：`src/agents/tools/memory-tool.ts`
 - **Cron 工具**：`src/agents/tools/cron-tool.ts`
-- **文档**：`docs/tools/index.md`, `docs/tools/subagents.md`
+- **PDF 工具**：`src/agents/tools/pdf-tool.ts`, `src/agents/tools/pdf-native-providers.ts`, `src/agents/tools/pdf-tool.helpers.ts`
+- **Web Search**：`src/agents/tools/web-search.ts`
+- **Onboarding**：`src/commands/onboard-config.ts`
+- **Diffs 插件**：`extensions/diffs/src/tool.ts`, `extensions/diffs/src/config.ts`, `extensions/diffs/src/types.ts`
+- **Media 回显**：`src/media-understanding/echo-transcript.ts`, `src/media-understanding/apply.ts`
+- **文档**：`docs/tools/index.md`, `docs/tools/subagents.md`, `docs/tools/pdf`, `docs/nodes/audio.md`
 
 ---
 
-璇玑 2026-02-04
+璇玑 2026-03-05

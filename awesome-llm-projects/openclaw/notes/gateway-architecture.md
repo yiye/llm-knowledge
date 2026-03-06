@@ -2,8 +2,8 @@
 
 ## 版本信息
 
-- **Commit**: `b9910ab03` (Docs: fix Moonshot sync markers)
-- **研究日期**: 2026-02-04
+- **Commit**: `7305572` (version 2026.3.3)
+- **研究日期**: 2026-03-06
 - **研究重点**: Gateway 控制平面架构、WebSocket 协议、服务发现、与 AI 主动性的关联
 
 ---
@@ -225,6 +225,32 @@ const EVENT_SCOPE_GUARDS: Record<string, string[]> = {
 - `caps`: 高层能力类别（camera、canvas、screen、location、voice）
 - `commands`: 命令白名单（`camera.snap`、`canvas.navigate` 等）
 - `permissions`: 细粒度开关（`screen.record`、`camera.capture`）
+
+### 2.6 HTTP 安全响应头（Baseline Security Headers）
+
+Gateway 对所有 HTTP 响应应用基线安全头，实现在 `src/gateway/http-common.ts:11-22`：
+
+```typescript
+export function setDefaultSecurityHeaders(
+  res: ServerResponse,
+  opts?: { strictTransportSecurity?: string },
+) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  // ... HSTS 可选
+}
+```
+
+**头列表**（`src/gateway/http-common.ts:15-17`）：
+
+| Header | 值 | 说明 |
+|--------|-----|------|
+| `X-Content-Type-Options` | `nosniff` | 禁止 MIME 类型嗅探 |
+| `Referrer-Policy` | `no-referrer` | 不发送 Referer |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | 禁用摄像头、麦克风、定位（2026.3.3 新增） |
+
+**设计说明**（`src/gateway/http-common.ts:5-10` 注释）：不在此处设置 `X-Frame-Options` 或 `Content-Security-Policy`，因 canvas host、A2UI 等可能被嵌入 iframe。
 
 ---
 
@@ -1126,9 +1152,128 @@ const gatewayMethods = Array.from(new Set([...baseGatewayMethods, ...channelMeth
 
 ---
 
-## 九、总结
+## 九、CLI 与配置增强（2026.3.3）
 
-### 9.1 Gateway 架构亮点
+### 9.1 `openclaw config validate` 命令
+
+在 Gateway 启动前校验配置文件，无需启动 Gateway 即可发现配置错误。
+
+**命令注册**（`src/cli/config-cli.ts:354-360`）：
+
+```typescript
+cmd
+  .command("validate")
+  .description("Validate the current config against the schema without starting the gateway")
+  .option("--json", "Output validation result as JSON", false)
+  .action(async (opts) => {
+    await runConfigValidate({ json: Boolean(opts.json) });
+  });
+```
+
+**核心实现**（`src/cli/config-cli.ts:341-389`）：
+
+- 调用 `readConfigFileSnapshot()` 读取配置
+- 校验逻辑复用 Gateway 启动时的 schema 验证（Zod + 插件 AJV）
+- 成功：`Config valid: <path>`，退出码 0
+- 失败：输出 `path`、`message`，并包含 `allowedValues` 等元数据（Zod 枚举提示）
+- `--json`：机器可读输出，格式为 `{ valid, path, issues?, error? }`
+
+**`--json` 输出结构**（`src/cli/config-cli.test.ts:257-295`）：
+
+```json
+{
+  "valid": false,
+  "path": "/tmp/custom-openclaw.json",
+  "issues": [
+    {
+      "path": "update.channel",
+      "message": "Invalid input (allowed: \"stable\", \"beta\", \"dev\")",
+      "allowedValues": ["stable", "beta", "dev"]
+    }
+  ]
+}
+```
+
+**Config Guard 豁免**（`src/cli/program/preaction.ts:50`）：`config validate` 绕过配置就绪检查，即使配置无效也可执行（用于诊断）。
+
+### 9.2 CLI Banner Tagline 模式：`cli.banner.taglineMode`
+
+控制 CLI 启动时 banner 标语（tagline）的显示方式。
+
+**配置项**（`src/config/zod-schema.ts:254-256`）：
+
+```typescript
+taglineMode: z
+  .union([z.literal("random"), z.literal("default"), z.literal("off")])
+  .optional(),
+```
+
+**模式说明**（`src/cli/tagline.ts:254-272`）：
+
+| 值 | 行为 |
+|----|------|
+| `random` | 从 TAGLINES 池中随机选取（含节日标语），默认行为 |
+| `default` | 固定显示 `"All your chats, one OpenClaw."` |
+| `off` | 不显示 tagline |
+
+**解析逻辑**（`src/cli/banner.ts:38-56`）：优先使用 `options.mode`（如 `--no-banner` 等），否则从 `loadConfig().cli?.banner?.taglineMode` 读取。
+
+**配置示例**（`docs/gateway/configuration-reference.md:2789`）：
+
+```json
+{
+  "cli": {
+    "banner": {
+      "taglineMode": "off"
+    }
+  }
+}
+```
+
+### 9.3 版本上报改进（serverVersion / bootstrapVersion）
+
+Gateway 与 Control UI 的版本信息传递流程已统一，避免 `dev` 占位符泄露。
+
+**Bootstrap 端点**（`src/gateway/control-ui.ts:349-355`）：
+
+Control UI 通过 `GET /__openclaw/control-ui-config.json` 获取 `serverVersion`：
+
+```typescript
+sendJson(res, 200, {
+  basePath,
+  assistantName: identity.name,
+  // ...
+  serverVersion: resolveRuntimeServiceVersion(process.env),
+} satisfies ControlUiBootstrapConfig);
+```
+
+**版本解析**（`src/version.ts:105-119`）：
+
+```typescript
+export function resolveRuntimeServiceVersion(
+  env: RuntimeVersionEnv = process.env,
+  fallback = RUNTIME_SERVICE_VERSION_FALLBACK,
+): string {
+  return (
+    firstNonEmpty(
+      env["OPENCLAW_VERSION"],
+      resolveUsableRuntimeVersion(VERSION),
+      env["OPENCLAW_SERVICE_VERSION"],
+      env["npm_package_version"],
+    ) ?? fallback
+  );
+}
+```
+
+**同源策略**（`ui/src/ui/app-gateway.ts:88-114`）：`resolveControlUiClientVersion()` 仅在 **同源**（`page.host === gateway.host`）时向前端传递 `serverVersion`，跨域目标不传递，防止版本信息泄露到其他站点。
+
+**WebSocket hello**（`src/gateway/server/ws-connection/message-handler.ts:1035`）：握手响应中也包含 `version: resolveRuntimeServiceVersion(process.env)`，供客户端显示。
+
+---
+
+## 十、总结
+
+### 10.1 Gateway 架构亮点
 
 1. **统一控制平面**：
    - 所有客户端通过同一 WebSocket 协议连接
@@ -1155,7 +1300,7 @@ const gatewayMethods = Array.from(new Set([...baseGatewayMethods, ...channelMeth
    - Channel 扩展
    - 动态加载+自动注册
 
-### 9.2 与 AI 主动性的关联
+### 10.2 与 AI 主动性的关联
 
 | AI 主动性特性 | Gateway 集成方式 | 关键代码位置 |
 |-------------|----------------|------------|
@@ -1180,7 +1325,7 @@ Gateway 启动 → registerSkillsChangeListener
 → 刷新远程节点 Skills → Agent 下次运行时加载
 ```
 
-### 9.3 待深入研究的问题
+### 10.3 待深入研究的问题
 
 - [ ] Memory 初始化的具体位置和时机（可能在插件系统中）
 - [ ] Memory 与 Gateway 生命周期的集成方式
