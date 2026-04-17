@@ -7,3 +7,6 @@
 [submodule "awesome-llm-projects/copaw/CoPaw"]
 	path = awesome-llm-projects/copaw/CoPaw
 	url = https://github.com/agentscope-ai/CoPaw.git
+[submodule "awesome-llm-projects/hermes-agent/hermes-agent"]
+	path = awesome-llm-projects/hermes-agent/hermes-agent
+	url = https://github.com/nousresearch/hermes-agent
