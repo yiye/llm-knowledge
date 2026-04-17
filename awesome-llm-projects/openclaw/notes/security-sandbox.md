@@ -1092,6 +1092,65 @@ make pairing-race-negative
 
 ---
 
+## ⭐ 可插拔沙箱后端（2026.3.22+ 新增）
+
+原有的沙箱系统只支持 Docker 容器，2026.3.22 版本引入了**插件化沙箱后端**架构：
+
+### 支持的沙箱后端
+
+| 后端 | 插件/来源 | 说明 | 适用场景 |
+|------|----------|------|----------|
+| Docker | 内置（默认） | 本地 Docker 容器隔离 | 本地部署，完整隔离 |
+| OpenShell | `extensions/openshell/` | 云端受控 Shell 服务 | 云端部署、无 Docker 环境 |
+| SSH | 内置/配置 | 远程服务器 SSH 执行 | 远程机器、专用服务器 |
+
+### OpenShell 插件
+
+**位置**：`extensions/openshell/`
+
+```json
+{
+  "sandbox": {
+    "backend": "openshell",
+    "openshell": {
+      "endpoint": "https://your-openshell-instance.com",
+      "apiKey": "${OPENSHELL_API_KEY}"
+    }
+  }
+}
+```
+
+**特点**：
+- 云端托管的 shell 执行环境，不依赖本地 Docker
+- 适合无法安装 Docker 的部署环境（如某些 VPS/容器托管平台）
+- 通过 `extensions/openshell/` 插件实现，与 Docker 后端共享相同的 tool policy 和权限模型
+
+### SSH 后端
+
+```json
+{
+  "sandbox": {
+    "backend": "ssh",
+    "ssh": {
+      "host": "sandbox.internal",
+      "user": "runner",
+      "keyPath": "~/.ssh/sandbox_key"
+    }
+  }
+}
+```
+
+**适用场景**：远程专用沙箱服务器，通过 SSH 隔离执行环境。
+
+### 后端兼容性
+
+所有沙箱后端共享相同的：
+- `SandboxConfig` 接口（`mode`、`scope`、`workspaceAccess`）
+- Tool Policy 过滤（工具允许/拒绝列表）
+- Exec Approval 审批流程
+
+只有底层执行机制不同，对 Agent 层完全透明。
+
 ## 🚀 后续研究方向
 
 1. **实际沙箱逃逸测试**: 尝试从 sandboxed session 中逃逸到 host
@@ -1099,8 +1158,9 @@ make pairing-race-negative
 3. **Prompt Injection 防御**: 研究如何在 system prompt 中加强防御
 4. **Memory 跨 Agent 共享**: 研究是否需要 shared memory 场景
 5. **Browser 沙箱**: 深入研究 sandboxed browser 的实现和安全性
+6. **OpenShell 安全模型**: 云端 shell 服务的威胁面分析
 
 ---
 
-**研究完成时间**: 2026-03-05
-**代码引用**: 基于 OpenClaw 2026.3.3 (commit 73055728318df378c831950cd01fb7c875a33790)
+**研究完成时间**: 2026-03-05（2026-03-24 更新可插拔沙箱后端部分）
+**代码引用**: 基于 OpenClaw 2026.3.3 → 2026.3.22+

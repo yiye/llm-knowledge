@@ -259,9 +259,10 @@ export type EmbeddingProvider = {
   embedBatch: (texts: string[]) => Promise<number[][]>;
 };
 
+// ⭐ 2026.3.22 更新：支持 6 种 provider（原来只有 3 种）
 export async function createEmbeddingProvider(options: {
-  provider: "openai" | "local" | "gemini" | "auto";
-  fallback: "openai" | "gemini" | "local" | "none";
+  provider: "openai" | "local" | "gemini" | "voyage" | "mistral" | "ollama" | "auto";
+  fallback: "openai" | "gemini" | "local" | "voyage" | "mistral" | "ollama" | "none";
   // ...
 }): Promise<EmbeddingProviderResult> {
   // Auto-select 策略
@@ -346,7 +347,86 @@ export async function createOllamaEmbeddingProvider(
 
 **默认模型**（`embeddings-ollama.ts:17`）：`nomic-embed-text`
 
-### 1.4.2 Local Embedding 初始化加固（回归覆盖）🔥
+### 1.4.2 Voyage / Mistral Embedding 支持（⭐ 新增）
+
+**Voyage AI**（`src/memory/embeddings-voyage.ts`）：
+
+- `memorySearch.provider = "voyage"` 使用 Voyage AI 的 embedding API
+- 支持批处理：`batch-voyage.ts` 实现 batch embedding 提交
+- 默认模型：`voyage-3-large`
+
+**Mistral AI**（`src/memory/embeddings-mistral.ts`）：
+
+- `memorySearch.provider = "mistral"` 使用 Mistral embedding API
+- 支持批处理：`batch-mistral.ts`（与 voyage/openai/gemini 并列）
+- 默认模型：`mistral-embed`
+
+**完整 Embedding Provider 矩阵**：
+
+| Provider | 模块 | 批处理 | 需要 API Key |
+|----------|------|--------|------------|
+| `openai` | `embeddings-openai.ts` | `batch-openai.ts` | OPENAI_API_KEY |
+| `gemini` | `embeddings-gemini.ts` | `batch-gemini.ts` | GEMINI_API_KEY |
+| `local` | `node-llama.ts` | — | 无（本地模型） |
+| `ollama` | `embeddings-ollama.ts` | — | 可选 |
+| `voyage` | `embeddings-voyage.ts` | `batch-voyage.ts` | VOYAGE_API_KEY |
+| `mistral` | `embeddings-mistral.ts` | `batch-mistral.ts` | MISTRAL_API_KEY |
+
+### 1.4.3 QMD 外部 Memory 后端（⭐ 全新功能）
+
+**QMD（Quick Memory Database）** 是一个可选的外部 Memory CLI 后端，通过 `search-manager.ts` 接入：
+
+```typescript
+// src/memory/search-manager.ts
+export async function getMemorySearchManager(
+  config: OpenClawConfig,
+  agentId: string,
+  workspaceDir: string,
+): Promise<MemorySearchManager> {
+  if (config.memorySearch?.backend === "qmd") {
+    const qmd = new QmdMemoryManager(config, agentId, workspaceDir);
+    // 如果 QMD 不可用，自动降级到内置 SQLite 后端
+    return new FallbackMemoryManager(qmd, builtinManager);
+  }
+  return MemoryIndexManager.get(config, agentId, workspaceDir);
+}
+```
+
+**`QmdMemoryManager`**（`src/memory/qmd-manager.ts`）：
+- 通过调用外部 `qmd` CLI 进程执行 memory 操作
+- 进程通信：stdin/stdout JSON 协议
+- 支持 `search`、`add`、`delete`、`list` 操作
+
+**`FallbackMemoryManager`**：
+- 主 backend（QMD）失败时自动降级到 `MemoryIndexManager`（内置 SQLite）
+- 透明降级：对 Agent 层无感知
+
+**使用场景**：需要共享 memory 数据库、或使用自定义 memory 存储格式时。
+
+### 1.4.4 Hybrid Search 增强：MMR + 时间衰减（⭐ 新增）
+
+**`src/memory/hybrid.ts`** 实现了增强版混合搜索：
+
+**MMR（Maximum Marginal Relevance）**：
+- 避免搜索结果冗余：不只选相关度最高的，而是在相关性和结果多样性之间取平衡
+- 算法：迭代选择与 query 相关但与已选结果不重复的 chunk
+- 参数：`mmrLambda`（相关性权重，0=纯多样性，1=纯相关性，默认 0.7）
+
+**Temporal Decay（时间衰减）**：
+- 近期 chunk 权重更高，旧 chunk 权重递减
+- 基于 `chunks.updated_at` 时间戳计算衰减系数
+- 参数：`temporalDecayDays`（衰减半衰期，默认 30 天）
+
+**完整 hybrid 搜索流程**：
+```
+1. Vector Search（sqlite-vec cosine） → 候选集
+2. Keyword Search（FTS5 BM25）      → 候选集
+3. Score Merge（加权融合）           → 合并候选
+4. Temporal Decay（时间加权）        → 调整分数
+5. MMR Re-rank（多样性过滤）         → 最终结果
+```
+
+### 1.4.5 Local Embedding 初始化加固（回归覆盖）🔥
 
 **瞬态初始化重试**（`src/memory/embeddings.ts:114-141`）：
 
@@ -594,6 +674,50 @@ export type PluginHookSessionEndEvent = {
 
 - Hook 上下文 `PluginHookSessionContext`（`types.ts:566-570`）同样包含 `sessionKey`
 - 文档：`docs/automation/hooks.md:262-325`
+
+### 2.2.1 压缩 Hooks（⭐ 新增）
+
+**插件压缩钩子**（`src/plugins/hooks.ts`）：
+
+- **`before_compaction`**：会话上下文压缩前触发，插件可读取完整历史
+- **`after_compaction`**：压缩完成后触发，插件可查看压缩摘要
+
+**内部压缩钩子**（`src/hooks/internal-hooks.ts`）：
+
+- **`session:compact:before`**：内部压缩前事件（与插件钩子并行的独立路径）
+- **`session:compact:after`**：内部压缩后事件
+
+**两路触发逻辑**（`src/agents/pi-embedded-runner/compact.ts`）：
+
+```
+压缩触发
+├── triggerInternalHook("session:compact:before")  — 内部订阅者
+├── hookRunner.runBeforeCompaction()               — 插件 before_compaction
+│
+│   [执行压缩]
+│
+├── triggerInternalHook("session:compact:after")   — 内部订阅者
+└── hookRunner.runAfterCompaction()                — 插件 after_compaction
+```
+
+> **注意**：当 context engine 控制压缩时（engine-owned compaction），会从 `compactEmbeddedPiSession` 触发插件钩子，传入 `messageCount: -1` 作为标识。
+
+### 2.2.2 子 Agent 生命周期 Hooks（⭐ 新增）
+
+**`subagent_spawning`**（spawn 前）：
+- 触发时机：`sessions_spawn` 工具调用且 `thread: true` 时必须有此 hook
+- 用途：channel plugin 创建线程绑定（Slack thread、Discord thread 等）
+- 若没有注册此 hook，`thread: true` 会直接返回错误
+
+**`subagent_spawned`**（spawn 成功后）：
+- 触发时机：子 Agent 会话成功创建并开始运行后
+- 用途：通知 channel plugin 子任务开始
+
+**`subagent_ended`**（子 Agent 结束后）：
+- 触发时机：子 Agent 运行完成（成功或失败）
+- 用途：清理线程绑定、通知用户结果
+
+**实现位置**：`src/agents/subagent-spawn.ts` 中的 `ensureThreadBindingForSubagentSpawn`、`runSubagentSpawning`、`runSubagentSpawned`、`runSubagentEnded`。
 
 ### 2.3 消息分发机制
 
@@ -964,9 +1088,10 @@ export type AcpSession = {
 
 ### 实现细节
 
-- **Memory DB**: SQLite + sqlite-vec + FTS5
+- **Memory DB**: SQLite + sqlite-vec + FTS5（内置），或 QMD 外部 CLI（可选）
 - **File Watcher**: Chokidar
-- **Embedding Providers**: OpenAI, Gemini, Local (node-llama-cpp)
+- **Embedding Providers**: OpenAI, Gemini, Local (node-llama-cpp), Ollama, Voyage, Mistral（6 种）
+- **Hybrid Search**: Vector + BM25 + MMR 多样性 + Temporal Decay 时间衰减
 - **Protocol**: ACP (NDJSON over stdin/stdout)
 
 ---

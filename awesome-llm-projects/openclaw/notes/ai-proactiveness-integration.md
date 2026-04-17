@@ -1908,6 +1908,8 @@ function scheduleRefresh(path: string) {
 - 归一化分数（Vector 和 FTS5 的分数范围不同）
 - 可配置权重（根据场景调整 Vector vs Keyword 权重）
 - Reciprocal Rank Fusion（RRF）算法
+- **MMR 多样性重排序**（Maximum Marginal Relevance，避免结果冗余，`mmrLambda` 参数）
+- **Temporal Decay 时间衰减**（近期记录权重更高，`temporalDecayDays` 配置半衰期，默认 30 天）
 
 ### 4. Skills 三层架构
 
@@ -1953,7 +1955,21 @@ function scheduleRefresh(path: string) {
 
 **核心亮点**：
 - **Heartbeat**：定时醒来 + 智能静默 + Active Hours 时区感知
-- **Memory**：File Watcher 自动索引 + Hybrid Search + Embedding Cache
-- **Skills**：三层架构 + 自动刷新 + ClawdHub Registry
+- **Memory**：File Watcher 自动索引 + Hybrid Search（MMR + 时间衰减）+ 6 种 Embedding Provider
+- **Skills**：三层架构 + 自动刷新 + **ClawHub 市场**（2026.3.22 正式）
+- **Cron Tasks**：用户定义的第三触发源（lightContext + per-job model + 结果投递）
 
-这三者协同工作，形成了 AI 的"主动性闭环"：定期检查（Heartbeat）→ 召回上下文（Memory）→ 学习新能力（Skills）→ 持续进化！💪
+这四者协同工作，形成了 AI 的"主动性闭环"：定期检查（Heartbeat/Cron）→ 召回上下文（Memory）→ 学习新能力（Skills）→ 持续进化！💪
+
+---
+
+## ⭐ 近期重大更新（2026.3.22+）
+
+| 特性 | 更新内容 |
+|------|----------|
+| ClawHub 市场 | 官方插件/Skills 市场正式上线，`openclaw plugins install` 直接安装 |
+| Cron 第三触发 | `lightContext`、per-job `model`/`fallbacks`、`channel`/`to` 投递 |
+| Memory MMR | 混合搜索增加 MMR 多样性重排序 + Temporal Decay 时间衰减 |
+| QMD 后端 | 外部 Memory CLI 后端，内置 SQLite 自动降级 |
+| 6 种 Embedding | 新增 Voyage、Mistral（原有 OpenAI/Gemini/Local/Ollama）|
+| 可插拔沙箱 | Docker / OpenShell / SSH 三种后端可选 |

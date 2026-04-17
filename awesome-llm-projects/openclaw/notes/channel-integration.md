@@ -12,7 +12,9 @@
 
 ## 🎯 核心发现：统一抽象 + 动态扩展的 Channel 架构
 
-OpenClaw 的 Channel 集成层是整个系统的"多平台消息枢纽"，通过**三层抽象**（Registry → Dock → Plugin）实现了对 20+ 个消息平台的统一管理，同时保持了高度的可扩展性。
+OpenClaw 的 Channel 集成层是整个系统的"多平台消息枢纽"，通过**三层抽象**（Registry → Dock → Plugin）实现了对 **20+ 个消息平台**的统一管理，同时保持了高度的可扩展性。
+
+> **⭐ 2026.3.22 更新**：extensions/ 目录共有 **72 个插件**，其中 Channel 类插件（含消息收发）达 **20+** 个，包含 feishu、synology-chat 等新增频道。
 
 **核心设计理念**：
 - **统一抽象**：所有 Channel 遵循相同的接口协议（`ChannelPlugin`）
@@ -1660,6 +1662,42 @@ agentTools?: ChannelAgentToolFactory | ChannelAgentTool[];
 
 ---
 
+## 12.6 新增 Channel 插件（⭐ 2026.3.22+）
+
+### Feishu（飞书）
+
+`extensions/feishu/` — 完整的飞书/Lark 集成，支持：
+- ACP 流式消息
+- 卡片消息（Feishu Card）格式
+- 多账号管理
+- Thread 消息和引用回复
+
+（注：Feishu 没有 `openclaw.plugin.json` 但有完整的 `channel.ts` 实现）
+
+### Synology Chat
+
+`extensions/synology-chat/` — Synology NAS 内置的 Chat 应用集成，适合私有化部署场景。
+
+### Channel 插件 `subagent_spawning` Hook 支持
+
+2026.3.22 版本 Channel 插件新增了对 **Thread Binding** 的支持，通过注册 `subagent_spawning` / `subagent_spawned` / `subagent_ended` hooks：
+
+```typescript
+// Channel 插件可以注册这些 hook 来支持线程绑定
+plugin.hooks = {
+  subagent_spawning: async ({ childSessionKey, requester }) => {
+    // 在频道中创建线程，将 childSession 绑定到该线程
+    const thread = await createThread(requester.channel, requester.to);
+    return { threadId: thread.id };
+  },
+  subagent_ended: async ({ childSessionKey }) => {
+    // 线程结束后的清理操作
+  }
+};
+```
+
+支持此功能的频道：Slack（threads）、Discord（thread channels）、Microsoft Teams（thread replies）。
+
 ## 13. 待研究的问题
 
 1. **Heartbeat Adapter 的具体实现**：各 Channel 的 Heartbeat Adapter 代码位置？如何发送定时消息？
@@ -1672,7 +1710,7 @@ agentTools?: ChannelAgentToolFactory | ChannelAgentTool[];
 
 ## 14. 总结
 
-OpenClaw 的 Channel 集成层通过**三层抽象**（Registry → Dock → Plugin）、**多维度路由**（Peer → Guild → Team → Account → Channel → Default）、**统一媒体 Pipeline**、**智能分块机制**、**DM 安全策略**等设计，实现了对 20+ 个消息平台的统一管理和动态扩展。
+OpenClaw 的 Channel 集成层通过**三层抽象**（Registry → Dock → Plugin）、**多维度路由**（Peer → Guild → Team → Account → Channel → Default）、**统一媒体 Pipeline**、**智能分块机制**、**DM 安全策略**等设计，实现了对 **20+ 个消息平台**的统一管理和动态扩展。
 
 **核心设计理念**：
 - **统一抽象**：所有 Channel 遵循相同的 ChannelPlugin 接口

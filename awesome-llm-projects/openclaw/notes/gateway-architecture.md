@@ -2,8 +2,8 @@
 
 ## 版本信息
 
-- **Commit**: `7305572` (version 2026.3.3)
-- **研究日期**: 2026-03-06
+- **Commit**: `7305572` → 最新代码分析 (版本 ≥ 2026.3.22)
+- **研究日期**: 2026-03-06（2026-03-24 依据最新代码更新）
 - **研究重点**: Gateway 控制平面架构、WebSocket 协议、服务发现、与 AI 主动性的关联
 
 ---
@@ -93,45 +93,96 @@ export type GatewayServer = {
 
 ### 2.3 RPC 方法清单
 
-在 `src/gateway/server-methods-list.ts:3-85` 中定义了 **85+ Gateway Methods**：
+在 `src/gateway/server-methods-list.ts` 中定义了 **100+ Gateway Methods**（`BASE_METHODS` + channel plugin 动态追加）：
+
+> **注**：最终有效方法集 = `listGatewayMethods()` = `BASE_METHODS` ∪ 各 channel plugin 的 `gatewayMethods`（去重）
 
 **核心方法分类**：
 
 | 类别 | 方法示例 | 说明 |
 |------|---------|------|
-| **Agent 控制** | `agent`, `agent.wait`, `agent.identity.get` | Agent 执行和身份管理 |
-| **Session 管理** | `sessions.list`, `sessions.patch`, `sessions.compact` | 会话生命周期管理 |
+| **Agent 控制** | `agent`, `agent.wait`, `agent.identity.get` | Agent 执行、身份管理、等待 |
+| **Session 管理** | `sessions.list/create/send/abort/patch/reset/delete/compact` | 会话完整生命周期 |
+| **Session 订阅** | `sessions.subscribe/unsubscribe`, `sessions.messages.subscribe/unsubscribe` | 实时事件订阅 |
 | **Channel 管理** | `channels.status`, `channels.logout` | 消息渠道控制 |
-| **Cron 任务** | `cron.list`, `cron.add`, `cron.run` | 定时任务调度 |
-| **Node 管理** | `node.list`, `node.invoke`, `node.pair.approve` | 节点注册和 RPC |
-| **配置管理** | `config.get`, `config.set`, `config.patch` | 运行时配置热更新 |
-| **Skills 管理** | `skills.status`, `skills.install`, `skills.bins` | Skills 动态加载 |
-| **聊天控制** | `chat.send`, `chat.abort`, `chat.history` | WebChat 原生支持 |
-| **健康状态** | `health`, `system-presence`, `last-heartbeat` | 监控和诊断 |
+| **Cron 任务** | `cron.list/status/add/update/remove/run/runs` | 定时任务完整 CRUD |
+| **Node 管理** | `node.list`, `node.invoke`, `node.pair.approve`, `node.pending.*` | 节点注册和 RPC |
+| **配置管理** | `config.get/set/apply/patch/schema/schema.lookup` | 运行时配置热更新 |
+| **Agent CRUD** | `agents.list/create/update/delete`, `agents.files.*` | Agent 文件管理 |
+| **Skills 管理** | `skills.status/bins/install/update` | Skills 动态加载 |
+| **执行审批** | `exec.approvals.*`（6 个）, `exec.approval.request/waitDecision/resolve` | Exec 安全审批系统 |
+| **向导配置** | `wizard.start/next/cancel/status` | 引导式配置流程 |
+| **语音对话** | `talk.config`, `talk.speak`, `talk.mode` | TTS/语音交互 |
+| **TTS** | `tts.status/providers/enable/disable/convert/setProvider` | 文本转语音 |
+| **聊天控制** | `chat.send`, `chat.abort`, `chat.history` | WebChat WebSocket-native 方法 |
+| **用量统计** | `usage.status`, `usage.cost` | 用量和费用查询 |
+| **Secrets** | `secrets.reload`, `secrets.resolve` | 敏感信息管理 |
+| **Browser** | `browser.request` | 浏览器控制 |
+| **工具目录** | `tools.catalog` | 工具目录查询 |
+| **健康状态** | `health`, `doctor.memory.status`, `system-presence`, `last-heartbeat` | 监控和诊断 |
 
-**完整方法列表**（`src/gateway/server-methods-list.ts:3-85`）：
+**完整方法列表**（`src/gateway/server-methods-list.ts`）：
 ```typescript
 const BASE_METHODS = [
-  "health", "logs.tail", "channels.status", "channels.logout",
+  // 健康与诊断
+  "health", "doctor.memory.status", "logs.tail",
   "status", "usage.status", "usage.cost",
+  // 渠道管理
+  "channels.status", "channels.logout",
+  // TTS
   "tts.status", "tts.providers", "tts.enable", "tts.disable", "tts.convert", "tts.setProvider",
-  "config.get", "config.set", "config.apply", "config.patch", "config.schema",
-  "exec.approvals.get", "exec.approvals.set", "exec.approvals.node.get", "exec.approvals.node.set",
-  "exec.approval.request", "exec.approval.resolve",
+  // 配置管理
+  "config.get", "config.set", "config.apply", "config.patch",
+  "config.schema", "config.schema.lookup",
+  // 执行审批（安全系统）
+  "exec.approvals.get", "exec.approvals.set",
+  "exec.approvals.node.get", "exec.approvals.node.set",
+  "exec.approval.request", "exec.approval.waitDecision", "exec.approval.resolve",
+  // 向导配置
   "wizard.start", "wizard.next", "wizard.cancel", "wizard.status",
-  "talk.mode",
-  "models.list", "agents.list",
+  // 语音对话
+  "talk.config", "talk.speak", "talk.mode",
+  // 模型与工具
+  "models.list", "tools.catalog",
+  // Agent CRUD + 文件管理
+  "agents.list", "agents.create", "agents.update", "agents.delete",
+  "agents.files.list", "agents.files.get", "agents.files.set",
+  // Skills
   "skills.status", "skills.bins", "skills.install", "skills.update",
+  // 更新
   "update.run",
+  // 语音唤醒
   "voicewake.get", "voicewake.set",
-  "sessions.list", "sessions.preview", "sessions.patch", "sessions.reset", "sessions.delete", "sessions.compact",
+  // Secrets
+  "secrets.reload", "secrets.resolve",
+  // Session 完整生命周期
+  "sessions.list", "sessions.subscribe", "sessions.unsubscribe",
+  "sessions.messages.subscribe", "sessions.messages.unsubscribe",
+  "sessions.preview", "sessions.create", "sessions.send", "sessions.abort",
+  "sessions.patch", "sessions.reset", "sessions.delete", "sessions.compact",
+  // Heartbeat & Cron
   "last-heartbeat", "set-heartbeats", "wake",
-  "node.pair.request", "node.pair.list", "node.pair.approve", "node.pair.reject", "node.pair.verify",
-  "device.pair.list", "device.pair.approve", "device.pair.reject",
+  "cron.list", "cron.status", "cron.add", "cron.update",
+  "cron.remove", "cron.run", "cron.runs",
+  // Node 配对
+  "node.pair.request", "node.pair.list",
+  "node.pair.approve", "node.pair.reject", "node.pair.verify",
+  // 设备配对
+  "device.pair.list", "device.pair.approve",
+  "device.pair.reject", "device.pair.remove",
   "device.token.rotate", "device.token.revoke",
-  "node.rename", "node.list", "node.describe", "node.invoke", "node.invoke.result", "node.event",
-  "cron.list", "cron.status", "cron.add", "cron.update", "cron.remove", "cron.run", "cron.runs",
-  "system-presence", "system-event", "send", "agent", "agent.identity.get", "agent.wait",
+  // Node 管理 & 调用
+  "node.rename", "node.list", "node.describe",
+  "node.pending.drain", "node.pending.enqueue",
+  "node.invoke", "node.pending.pull", "node.pending.ack",
+  "node.invoke.result", "node.event",
+  "node.canvas.capability.refresh",
+  // 系统 & 网关
+  "gateway.identity.get",
+  "system-presence", "system-event", "send",
+  // Agent 执行
+  "agent", "agent.identity.get", "agent.wait",
+  // Browser & WebChat
   "browser.request",
   "chat.history", "chat.abort", "chat.send",
 ];
@@ -139,30 +190,36 @@ const BASE_METHODS = [
 
 ### 2.4 事件广播机制
 
-在 `src/gateway/server-methods-list.ts:92-111` 中定义了 **11 种事件类型**：
+在 `src/gateway/server-methods-list.ts` 中定义了 **22 种事件类型**（含 `GATEWAY_EVENT_UPDATE_AVAILABLE` 常量）：
 
 ```typescript
 export const GATEWAY_EVENTS = [
-  "connect.challenge",        // 握手挑战
-  "agent",                    // Agent 执行进度（流式）
-  "chat",                     // 聊天消息（WebChat 客户端）
+  "connect.challenge",        // 握手挑战（连接建立时推送 nonce）
+  "agent",                    // Agent 执行进度（流式 token/tool）
+  "chat",                     // 聊天消息（WebChat 客户端专用）
+  "session.message",          // 会话消息事件
+  "session.tool",             // 会话工具调用事件
+  "sessions.changed",         // 会话列表变更通知
   "presence",                 // 客户端在线状态变更
-  "tick",                     // 心跳 tick（15s）
+  "tick",                     // 心跳 tick（15s 周期）
   "talk.mode",                // 语音模式切换
   "shutdown",                 // Gateway 关闭通知
   "health",                   // 健康状态更新
   "heartbeat",                // Heartbeat 执行事件
   "cron",                     // Cron 任务执行事件
-  "node.pair.requested",      // 节点配对请求
-  "node.pair.resolved",       // 节点配对结果
+  "node.pair.requested",      // 节点配对请求（需 PAIRING_SCOPE）
+  "node.pair.resolved",       // 节点配对结果（需 PAIRING_SCOPE）
   "node.invoke.request",      // 节点 RPC 请求
-  "device.pair.requested",    // 设备配对请求
-  "device.pair.resolved",     // 设备配对结果
+  "device.pair.requested",    // 设备配对请求（需 PAIRING_SCOPE）
+  "device.pair.resolved",     // 设备配对结果（需 PAIRING_SCOPE）
   "voicewake.changed",        // 语音唤醒配置变更
-  "exec.approval.requested",  // Exec 审批请求
-  "exec.approval.resolved",   // Exec 审批结果
+  "exec.approval.requested",  // Exec 审批请求（需 APPROVALS_SCOPE）
+  "exec.approval.resolved",   // Exec 审批结果（需 APPROVALS_SCOPE）
+  GATEWAY_EVENT_UPDATE_AVAILABLE, // 版本更新可用通知
 ];
 ```
+
+> 部分事件受 Scope 访问控制（见 2.5 节），如 `exec.approval.*`、`device.pair.*`、`node.pair.*`。
 
 **Broadcast 实现**（`src/gateway/server-broadcast.ts:34-88`）：
 
@@ -420,8 +477,8 @@ attachGatewayWsHandlers({
   canvasHostEnabled,
   canvasHostServerPort,
   resolvedAuth,             // Token/Password 认证配置
-  gatewayMethods,           // 85+ RPC 方法列表
-  events: GATEWAY_EVENTS,   // 11 种事件类型
+  gatewayMethods,           // 100+ RPC 方法列表（BASE_METHODS + plugin methods）
+  events: GATEWAY_EVENTS,   // 22 种事件类型
   logGateway: log,
   logHealth,
   logWsControl,
@@ -1325,13 +1382,48 @@ Gateway 启动 → registerSkillsChangeListener
 → 刷新远程节点 Skills → Agent 下次运行时加载
 ```
 
-### 10.3 待深入研究的问题
+### 10.3 新增系统（2026.3.22+ 代码更新）
+
+#### Exec Approval 执行审批系统
+
+通过独立的 `createExecApprovalHandlers` / `createSecretsHandlers` 注入到 `extraHandlers`，不在 `coreGatewayHandlers` 中：
+
+```typescript
+extraHandlers: {
+  ...pluginRegistry.gatewayHandlers,
+  ...execApprovalHandlers,   // exec.approval.request/waitDecision/resolve
+  ...secretsHandlers,        // secrets.reload/resolve
+}
+```
+
+审批流程：Agent 调用 exec → 发出 `exec.approval.requested` 事件 → Operator 客户端弹出审批 → 调用 `exec.approval.resolve` → Agent 继续。
+
+#### WebChat WebSocket-native 方法
+
+`chat.send`, `chat.abort`, `chat.history` 是为 WebChat 前端专门实现的 Gateway-native 方法，与通过 `sessions.*` 的普通会话通信并列，提供更低延迟的浏览器聊天体验。
+
+#### Agent CRUD 管理
+
+`agents.create/update/delete` 和 `agents.files.list/get/set` 实现对 Agent 配置文件（`IDENTITY.md`、`SOUL.md` 等）的远程读写，供 Control UI 和 CLI 管理 Agent 身份。
+
+#### ClawHub 插件市场集成（2026.3.22）
+
+`skills.install` / `skills.update` RPC 方法支持从 ClawHub 市场安装和更新插件包：
+
+```bash
+# 通过 CLI 路由到 Gateway
+openclaw plugins install <name>
+openclaw skills install <name>
+```
+
+底层流程：CLI → Gateway `skills.install` RPC → 从 ClawHub 拉取包 → 安装到本地 skills 目录 → 触发 `bumpSkillsSnapshotVersion`。
+
+### 10.4 待深入研究的问题
 
 - [ ] Memory 初始化的具体位置和时机（可能在插件系统中）
 - [ ] Memory 与 Gateway 生命周期的集成方式
 - [ ] Wide-Area DNS-SD 的完整实现细节
 - [ ] Gateway 多实例部署的协调机制
-- [ ] Exec Approval 的完整工作流
 
 ---
 

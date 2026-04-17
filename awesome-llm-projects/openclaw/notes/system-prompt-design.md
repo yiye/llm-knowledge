@@ -679,6 +679,75 @@ summary: "Workspace template for HEARTBEAT.md"
 - Heartbeat 注入：`src/agents/system-prompt.ts`（通过 `heartbeatPrompt` 参数）
 - HEARTBEAT_OK 定义：`src/auto-reply/tokens.ts`（推测）
 
+### 4.1.1 Cron Job Payload 完整字段（⭐ 新增）
+
+Cron 任务在触发 Agent 执行时，通过 `CronAgentTurnPayload` 控制执行行为（`src/cron/types.ts`）：
+
+```typescript
+type CronAgentTurnPayloadFields = {
+  // 核心
+  message: string;                    // 发给 Agent 的指令消息
+
+  // 模型控制（每个 Job 独立设置，覆盖 Agent/全局默认值）
+  model?: string;                     // 模型 provider/model 或别名
+  fallbacks?: string[];               // 失败时的备选模型列表
+  thinking?: string;                  // extended thinking 模式
+
+  // 执行控制
+  timeoutSeconds?: number;            // 每个 Job 独立超时控制
+  allowUnsafeExternalContent?: boolean;
+
+  // 上下文轻量化（⭐ 重要）
+  lightContext?: boolean;             // 使用轻量引导上下文（减少 token）
+
+  // 投递控制
+  deliver?: boolean;                  // 是否将结果投递到频道
+  channel?: CronMessageChannel;       // 指定投递目标频道
+  to?: string;                        // 指定投递目标用户/会话
+  bestEffortDeliver?: boolean;        // 投递失败时不报错
+
+  // Hook 溯源（⭐ 新增，用于外部 hook 触发的 cron）
+  externalContentSource?: HookExternalContentSource;  // 保存异步 hook 调用的来源
+};
+```
+
+**`lightContext` 说明**：
+- 设为 `true` 时，Agent 使用最小化的 System Prompt（不加载完整 AGENTS.md 等大文件）
+- 适合高频执行的轻量 Cron（如每 5 分钟检查一次状态）
+- 减少 Token 消耗，降低延迟
+
+**`externalContentSource` 说明**：
+- 用于记录外部 HTTP webhook（如 Gmail PubSub）触发的 cron 任务来源
+- 即使是异步 isolated-agent 执行，也能追溯到最初的 hook 请求
+- 由 `hookRunner` 的 provenance 机制自动注入
+
+**`model` / `fallbacks` 说明**：
+- 每个 Cron Job 可独立配置模型，不受 Agent 全局配置影响
+- `fallbacks` 在主模型不可用时自动降级
+
+**`channel` / `to` 说明**：
+- 允许 Cron Job 将结果投递到特定频道（而不只是 Heartbeat 默认频道）
+- 适合"定时报告"类任务：每天给特定 Slack 频道发日报
+
+**典型配置示例**（`cron.add` RPC）：
+
+```json
+{
+  "schedule": "0 9 * * 1-5",
+  "agentId": "default",
+  "payload": {
+    "message": "Generate daily standup report",
+    "model": "claude-opus-4-5",
+    "fallbacks": ["gpt-5.4"],
+    "timeoutSeconds": 120,
+    "lightContext": false,
+    "deliver": true,
+    "channel": "slack",
+    "to": "#daily-standup"
+  }
+}
+```
+
 ### 4.2 Memory 与 System Prompt
 
 **Memory 系统注入**：

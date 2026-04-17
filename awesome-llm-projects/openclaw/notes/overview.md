@@ -2310,3 +2310,119 @@ OpenClaw 的技术选型遵循 **"适合场景优先于技术时髦"** 原则：
 - 引用格式: `src/gateway/server.impl.ts:92-94`
 - 不确定的地方标注 "待研究"，不编造
 - 记录 commit hash 和研究日期
+
+---
+
+## 重大功能更新（⭐ 2026.3.22+ 代码分析）
+
+### 1. ClawHub 插件市场
+
+OpenClaw 新增了 **ClawHub** 作为官方插件和 Skills 市场，支持一键安装：
+
+```bash
+# 从 ClawHub 安装插件（2026.3.22 新增）
+openclaw plugins install tavily
+openclaw plugins install firecrawl
+openclaw skills install my-skill-pack
+
+# 更新已安装的插件
+openclaw plugins update
+openclaw skills update
+```
+
+**底层机制**：CLI 命令通过 Gateway RPC（`skills.install` / `skills.update`）执行，从 ClawHub 拉取并安装到本地目录，安装完成后自动触发 `bumpSkillsSnapshotVersion` 刷新。
+
+**市场 Bundle 安装**：支持 marketplace 捆绑包，一次安装多个相关插件。
+
+### 2. 聊天命令扩展（/btw 和 /plugins）
+
+**`/btw` 侧问功能**（side-questions）：
+- Agent 运行时用户可以发送 `/btw <问题>`
+- Agent 在当前任务中会收到这个旁路问题并响应
+- 不中断当前任务流程，适合追加补充说明或快速提问
+
+**`/plugins` 聊天命令**：
+- 在聊天界面直接管理插件：`/plugins install tavily`
+- 无需切换到 CLI，直接在对话中操作
+- 路由到 Gateway 插件管理 RPC
+
+### 3. 新增 LLM 提供商（2026.3.22+）
+
+| 提供商 | 插件 | 说明 |
+|--------|------|------|
+| Anthropic Vertex | `extensions/anthropic/` (Vertex path) | Google Cloud Vertex AI 上的 Claude |
+| Chutes AI | `extensions/chutes/` | Chutes AI 平台（推理端点）|
+| Qwen / ModelStudio | `extensions/qwen/` | 阿里云 ModelStudio + Qwen 系列 |
+
+**配置方式**（以 Chutes 为例）：
+```json
+{
+  "models": {
+    "providers": {
+      "chutes": {
+        "apiKey": "...",
+        "baseUrl": "https://chutes.ai/v1"
+      }
+    }
+  }
+}
+```
+
+现有提供商更新：OpenAI 默认模型已更新为 `gpt-5.4`。
+
+### 4. 可插拔沙箱后端（Pluggable Sandbox）
+
+原来沙箱只支持 Docker，现在通过插件架构支持多种后端：
+
+| 后端 | 插件 | 适用场景 |
+|------|------|----------|
+| Docker | 内置 | 本地容器隔离（默认） |
+| OpenShell | `extensions/openshell/` | 云端 shell 服务 |
+| SSH | 内置/配置 | 远程服务器 SSH 执行 |
+
+**配置示例**（OpenShell）：
+```json
+{
+  "sandbox": {
+    "backend": "openshell",
+    "openshell": {
+      "endpoint": "https://..."
+    }
+  }
+}
+```
+
+### 5. clawdbot / moltbot 已成为兼容性 Shim
+
+**重要变更**：`packages/clawdbot/` 和 `packages/moltbot/` 两个包现在只是转发器：
+
+```javascript
+// packages/clawdbot/index.js
+export * from "openclaw";
+
+// packages/moltbot/index.js
+export * from "openclaw";
+```
+
+- 所有 `CLAWDBOT_*` / `MOLTBOT_*` 环境变量已废弃，统一使用 `OPENCLAW_*`
+- 原来使用这两个包的项目可以无缝迁移，但建议直接用 `openclaw` 包
+- 参考：CHANGELOG 2026.3.22 中的环境变量迁移记录
+
+### 6. Model System 更新
+
+**多模型配置增强**（`src/cron/types.ts`）：
+- Cron job 支持每个 job 独立指定 `model` 和 `fallbacks`
+- 支持 `thinking` 参数控制 extended thinking 模式
+- `timeoutSeconds` 每个 job 独立超时控制
+
+**默认模型更新**（2026.3.22）：
+- OpenAI 主模型：`gpt-5.4`（原 `gpt-4o` 系列）
+- 图片理解：`gpt-5-mini`（`DEFAULT_IMAGE_MODELS.openai`）
+- Anthropic 图片：`claude-opus-4-5`
+
+### 7. 架构图更新说明
+
+鉴于以上更新，相关架构图（`notes/architecture-diagram.html`）已同步更新：
+- 触发源新增"Cron Tasks（用户定时任务）"
+- 数据流标注 A/B/C/D 四条路径
+- 补充了 Hooks 生命周期和 Multi-Agent 子系统详图

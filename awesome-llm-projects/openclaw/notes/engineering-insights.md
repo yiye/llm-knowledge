@@ -646,9 +646,18 @@ export function createProgressBar(options: { total: number; message?: string }):
 **Skills CLI**：
 
 - `openclaw skills list` - 列出已加载的 Skills
-- `openclaw skills search "github"` - 搜索 ClawdHub Registry
-- `openclaw skills install github-issues` - 安装 Skill
+- `openclaw skills search "github"` - 搜索 ClawHub 市场（原 ClawdHub Registry）
+- `openclaw skills install github-issues` - 从 ClawHub 安装 Skill
+- `openclaw skills update` - 更新已安装的 Skills
 - `openclaw skills refresh` - 热重载 Skills
+
+**Plugins CLI（⭐ 2026.3.22 新增）**：
+
+- `openclaw plugins install tavily` - 从 ClawHub 安装插件
+- `openclaw plugins update` - 更新已安装插件
+- `openclaw plugins list` - 列出已安装插件
+
+> **注**：插件和 Skills 安装现在统一走 Gateway RPC（`skills.install` / `skills.update`），CLI 只是 RPC 的包装层。安装后自动触发 `bumpSkillsSnapshotVersion` 热更新，无需重启 Gateway。
 
 ---
 

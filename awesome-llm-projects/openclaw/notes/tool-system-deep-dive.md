@@ -2,10 +2,10 @@
 
 ## 📌 版本信息
 
-- **Commit**: `73055728318df378c831950cd01fb7c875a33790`
-- **版本**: 2026.3.3
-- **研究日期**: 2026-03-05
-- **注意**: 该分析基于 2026 年 3 月的代码，可能随版本更新而变化
+- **Commit**: `73055728318df378c831950cd01fb7c875a33790` → 最新代码分析（≥ 2026.3.22）
+- **版本**: 2026.3.3（2026-03-24 更新）
+- **研究日期**: 2026-03-05（2026-03-24 依据最新代码更新）
+- **注意**: 该分析基于 2026 年 3 月最新代码
 
 ---
 
@@ -62,15 +62,18 @@ export function createOpenClawTools(options?: {
    - `createCanvasTool()` - Canvas + A2UI
    - `createNodesTool()` - macOS/iOS/Android nodes
    - `createCronTool()` - Cron 任务管理
-   - `createMessageTool()` - 消息发送（多平台）
+   - `createMessageTool()` - 消息发送（多平台，可选）
    - `createTtsTool()` - TTS 语音合成
+   - `createImageGenerateTool()` - 图片生成（可选，`image_generate`）⭐ 新增
    - `createGatewayTool()` - Gateway 管理（restart/config/update）
-   - `createAgentsListTool()` - Agent 列表
+   - `createAgentsListTool()` - Agent 列表（`agents_list`）
    - `createSessionsListTool()` - Session 列表
    - `createSessionsHistoryTool()` - Session 历史
-   - `createSessionsSendTool()` - Agent 间通信
-   - `createSessionsSpawnTool()` - Subagent 生成
-   - `createSessionStatusTool()` - Session 状态
+   - `createSessionsSendTool()` - Agent 间通信（`sessions_send`）
+   - `createSessionsYieldTool()` - 长等待让步信号（`sessions_yield`）⭐ 新增
+   - `createSessionsSpawnTool()` - Subagent 生成（`sessions_spawn`）
+   - `createSubagentsTool()` - Subagent 管理（`subagents`，list/steer/kill）⭐ 新增
+   - `createSessionStatusTool()` - Session 状态（`session_status`）
    - `createWebSearchTool()` / `createWebFetchTool()` - Web 工具（可选）
    - `createImageTool()` - 图片分析（可选，依赖 imageModel 配置）
    - `createPdfTool()` - PDF 分析（可选，依赖 agentDir + pdfModel 配置）
@@ -89,7 +92,29 @@ export function createOpenClawTools(options?: {
    return [...tools, ...pluginTools];
    ```
 
-### 1.2 Coding Tools 注册：`createOpenClawCodingTools`
+### 1.2 两阶段注册架构（⭐ 重要更新）
+
+工具注册分为**两个独立阶段**，顺序固定：
+
+```
+阶段 1: createOpenClawCodingTools (pi-tools.ts)
+├── Pi base tools (read/write/edit/grep/find/ls)
+├── exec, process, apply_patch
+├── listChannelAgentTools() — channel 插件工具
+└── createOpenClawTools()  — OpenClaw 核心工具
+    ├── 固定顺序内置工具（见 1.1 节列表）
+    └── resolvePluginTools() — 插件动态工具（末尾追加）
+
+阶段 2: 最终合并
+└── [...phase1Tools]  （所有工具的有序列表）
+```
+
+**关键约束**：
+- 插件工具（`resolvePluginTools`）**永远在最末尾**，避免覆盖内置工具的名称
+- `existingToolNames` 去重：插件工具注册时会检查是否与已有工具名冲突
+- Channel 工具（`listChannelAgentTools`）在 OpenClaw 核心工具之前注册
+
+### 1.3 Coding Tools 注册：`createOpenClawCodingTools`
 
 **位置**：`src/agents/pi-tools.ts:114-442`
 
@@ -1256,7 +1281,71 @@ User Message
 
 ---
 
-## 10. 待深入研究的方向
+## 10. 新增工具详解（⭐ 2026.3.22+ 更新）
+
+### 10.1 `sessions_yield` — 长等待让步信号
+
+**位置**：`src/agents/tools/sessions-yield-tool.ts`
+
+`sessions_yield` 用于 Agent 在需要等待外部事件（如人工审核、长时间任务）时，主动让步控制权而不阻塞整个 Agent Lane。
+
+**设计意图**：
+- 与 `sessions_spawn` 配合实现"发出任务 → 挂起等待 → 恢复执行"模式
+- 允许 Gateway 在等待期间处理其他会话请求
+- 让子 Agent 或外部系统完成后通过 `sessions.send` 唤醒
+
+### 10.2 `subagents` — 子 Agent 管理工具
+
+**位置**：`src/agents/tools/subagents-tool.ts`
+
+`subagents` 工具让主 Agent 可以管理其生成的子 Agent 运行状态：
+
+```typescript
+// 列出所有子 Agent 及其状态
+subagents({ action: "list" })
+
+// 中止子 Agent
+subagents({ action: "kill", sessionKey: "agent:xxx:subagent:uuid" })
+
+// 向运行中的子 Agent 发送指令调整
+subagents({ action: "steer", sessionKey: "...", message: "更改方向" })
+```
+
+**与 `sessions_spawn` 的关系**：`sessions_spawn` 创建子 Agent，`subagents` 管理已创建的子 Agent。
+
+### 10.3 `image_generate` — 标准图片生成工具
+
+**位置**：`src/agents/tools/image-generate-tool.ts`（推测）
+
+`image_generate` 是 2026.3.22 新增的标准图片生成工具，取代之前非标准的实现路径：
+
+- 通过插件系统支持多个图片生成后端（如 `fal` 插件）
+- 与 `createImageTool()`（图片分析）区分：`image_generate` 是生成，`image` 是分析
+
+**可用性控制**：依赖图片生成插件（如 `extensions/fal/`）启用。
+
+### 10.4 插件工具系统（Plugin Tools）
+
+通过 `resolvePluginTools` 动态加载插件提供的工具，目前已有的插件工具：
+
+| 插件 | 工具名 | 说明 |
+|------|--------|------|
+| `tavily` | `tavily_search`, `tavily_extract` | Tavily AI 搜索和内容提取 |
+| `firecrawl` | `firecrawl_search`, `firecrawl_scrape` | Firecrawl 网页爬取和搜索 |
+| `exa` | `exa_search`, `exa_find_similar` | Exa 语义搜索 |
+| `brave` | `brave_search` | Brave 搜索 |
+| `duckduckgo` | `duckduckgo_search` | DuckDuckGo 搜索 |
+| `perplexity` | `perplexity_search` | Perplexity AI 搜索 |
+
+**安装方式**（2026.3.22 ClawHub 市场）：
+```bash
+openclaw plugins install tavily
+openclaw plugins install firecrawl
+```
+
+**工具可用性**：插件工具受 `pluginToolAllowlist` 参数过滤，可按 Agent 或全局配置白名单。
+
+## 11. 待深入研究的方向
 
 1. **Skills 工具系统**：`skill_search` / `skill_install` 的完整实现（第1层 System Prompt 设计中详细分析）
 2. **Browser Tool CDP 实现**：`browserSnapshot()` 的 AI snapshot 算法（第8层高级特性）
@@ -1278,6 +1367,10 @@ User Message
 - **Schema 适配**：`src/agents/pi-tools.schema.ts`, `src/agents/schema/clean-for-gemini.ts`
 - **Memory 工具**：`src/agents/tools/memory-tool.ts`
 - **Cron 工具**：`src/agents/tools/cron-tool.ts`
+- **Subagents 工具**：`src/agents/tools/subagents-tool.ts`
+- **Sessions Yield**：`src/agents/tools/sessions-yield-tool.ts`
+- **Image Generate**：`src/agents/tools/image-generate-tool.ts`
+- **插件工具**：`extensions/tavily/`, `extensions/firecrawl/`, `extensions/exa/`, `extensions/brave/`
 - **PDF 工具**：`src/agents/tools/pdf-tool.ts`, `src/agents/tools/pdf-native-providers.ts`, `src/agents/tools/pdf-tool.helpers.ts`
 - **Web Search**：`src/agents/tools/web-search.ts`
 - **Onboarding**：`src/commands/onboard-config.ts`

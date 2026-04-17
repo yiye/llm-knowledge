@@ -1,0 +1,1640 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw Architecture Diagram</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: 'Noto Sans SC', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 20px 48px;
+  }
+
+  h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 24px;
+    color: #58a6ff;
+    margin-bottom: 6px;
+    letter-spacing: 2px;
+  }
+  .subtitle {
+    font-size: 12px;
+    color: #8b949e;
+    margin-bottom: 16px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* ========== LEGEND ========== */
+  .legend {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 10px 18px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: #8b949e;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .legend-dot {
+    width: 24px;
+    height: 3px;
+    border-radius: 2px;
+  }
+  .legend-step {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+  }
+
+  /* ========== DIAGRAM CONTAINER ========== */
+  .diagram {
+    width: 1240px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* ========== STEP BADGE ========== */
+  .step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    flex-shrink: 0;
+    vertical-align: middle;
+  }
+  .step-msg { background: #1f6feb; color: #fff; }
+  .step-hb   { background: #d29922; color: #0d1117; }
+  .step-mem  { background: #8957e5; color: #fff; }
+  .step-cron { background: #0e7490; color: #fff; }
+
+  /* ========== TRIGGER ROW ========== */
+  .trigger-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+  }
+  .trigger-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    position: relative;
+    overflow: hidden;
+  }
+  .trigger-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+  .trigger-passive::before { background: linear-gradient(90deg, #2ea043, #56d364); }
+  .trigger-active::before  { background: linear-gradient(90deg, #d29922, #e3b341); }
+  .trigger-cron::before    { background: linear-gradient(90deg, #0e7490, #22d3ee); }
+
+  .trigger-label {
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .trigger-passive .trigger-label { color: #56d364; }
+  .trigger-active  .trigger-label { color: #e3b341; }
+
+  .trigger-title  { font-size: 15px; font-weight: 700; color: #e6edf3; }
+  .trigger-detail { font-size: 11.5px; color: #8b949e; line-height: 1.5; }
+
+  .platform-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+  .chip {
+    background: #21262d; border: 1px solid #30363d; border-radius: 20px;
+    padding: 2px 9px; font-size: 10.5px; color: #c9d1d9;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* ========== CHANNEL SECTION ========== */
+  .channel-section {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 10px; padding: 12px 14px; position: relative;
+  }
+  .channel-section::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    border-radius: 10px 10px 0 0;
+    background: linear-gradient(90deg, #1a4428, #56d364);
+  }
+  .channel-grid {
+    display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; margin-top: 4px;
+  }
+  .channel-item {
+    background: #0d1117; border: 1px solid #21262d; border-radius: 5px;
+    padding: 5px 3px; text-align: center; font-size: 9.5px;
+    color: #8b949e; font-family: 'JetBrains Mono', monospace; line-height: 1.4;
+  }
+  .channel-item span { display: block; color: #3d444d; font-size: 8.5px; }
+
+  /* ========== FLOW CONNECTOR ========== */
+  .conn-row {
+    display: flex; align-items: center; justify-content: center;
+    gap: 4px; min-height: 22px; padding: 0 4px;
+  }
+  .conn-line { height: 1px; flex: 1; }
+  .conn-line-msg  { background: linear-gradient(90deg, transparent, #1f6feb55, transparent); }
+  .conn-line-hb   { background: linear-gradient(90deg, transparent, #d2992255, transparent); }
+  .conn-line-both { background: linear-gradient(90deg, transparent, #30363d, transparent); }
+  .conn-text {
+    font-size: 9.5px; color: #6e7681; font-family: 'JetBrains Mono', monospace;
+    padding: 0 8px; white-space: nowrap;
+    display: flex; align-items: center; gap: 5px;
+  }
+
+  /* ========== MAIN 3-COL ========== */
+  .main-area {
+    display: grid; grid-template-columns: 204px 1fr 210px;
+    gap: 10px; min-height: 600px;
+  }
+
+  /* ========== SIDE PANEL (Left – Client) ========== */
+  .side-panel {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 10px; padding: 12px;
+    display: flex; flex-direction: column; gap: 9px;
+  }
+  .panel-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 1px;
+    text-transform: uppercase; font-family: 'JetBrains Mono', monospace;
+    padding-bottom: 7px; border-bottom: 1px solid #21262d; line-height: 1.6;
+  }
+  .client-group { display: flex; flex-direction: column; gap: 4px; }
+  .client-group-label {
+    font-size: 9px; color: #8b949e; font-weight: 700;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .client-item {
+    background: #0d1117; border: 1px solid #21262d;
+    border-radius: 6px; padding: 6px 9px; font-size: 11px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .client-name { font-weight: 600; color: #e6edf3; }
+  .client-desc { font-size: 9px; color: #6e7681; font-family: 'JetBrains Mono', monospace; line-height: 1.4; }
+  .divider { height: 1px; background: #21262d; }
+  .annotation {
+    background: #0d1117; border: 1px dashed #30363d; border-radius: 6px;
+    padding: 7px 9px; font-size: 9.5px; color: #6e7681; line-height: 1.5;
+  }
+  .anno-title {
+    font-family: 'JetBrains Mono', monospace; color: #8b949e;
+    font-weight: 600; margin-bottom: 3px; font-size: 9.5px;
+  }
+
+  /* ========== CENTER PANEL ========== */
+  .center-panel { display: flex; flex-direction: column; gap: 9px; }
+
+  /* Gateway */
+  .gateway-section {
+    background: #161b22; border: 1px solid #1f6feb;
+    border-radius: 10px; padding: 13px 15px; position: relative;
+  }
+  .gateway-section::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    border-radius: 10px 10px 0 0;
+    background: linear-gradient(90deg, #1f6feb, #58a6ff, #79c0ff);
+  }
+  .section-title {
+    font-size: 13px; font-weight: 700; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px;
+    font-family: 'JetBrains Mono', monospace; flex-wrap: wrap;
+  }
+  .section-badge {
+    font-size: 9px; padding: 2px 8px; border-radius: 10px; font-weight: 600;
+  }
+  .badge-blue   { background: #1f3050; color: #79c0ff; }
+  .badge-green  { background: #1a4428; color: #56d364; }
+  .badge-orange { background: #3d2b00; color: #e3b341; }
+
+  .gateway-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .gw-item {
+    background: #0d1117; border: 1px solid #21262d;
+    border-radius: 6px; padding: 8px 9px; font-size: 10.5px;
+  }
+  .gw-item-title {
+    color: #79c0ff; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 4px; font-size: 10.5px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .gw-item-detail { color: #6e7681; font-size: 9.5px; line-height: 1.5; }
+
+  /* Agent Loop */
+  .agent-loop {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 10px; padding: 13px 15px; flex: 1;
+    display: flex; flex-direction: column; gap: 9px;
+  }
+  .agent-loop-header {
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .agent-loop-title-text { font-size: 13px; font-weight: 700; color: #e6edf3; }
+  .agent-loop-subtitle   { font-size: 9.5px; color: #6e7681; }
+
+  .agent-loop-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .loop-box { border-radius: 8px; padding: 11px; border: 1px solid; }
+  .loop-box-llm     { background: #0d2137; border-color: #1f6feb; }
+  .loop-box-tools   { background: #0f2a1a; border-color: #2ea043; }
+  .loop-box-context { background: #1c1030; border-color: #8957e5; }
+
+  .loop-box-title { font-size: 12px; font-weight: 700; margin-bottom: 7px; font-family: 'JetBrains Mono', monospace; }
+  .loop-box-llm     .loop-box-title { color: #58a6ff; }
+  .loop-box-tools   .loop-box-title { color: #56d364; }
+  .loop-box-context .loop-box-title { color: #bc8cff; }
+
+  .loop-items { display: flex; flex-direction: column; gap: 3px; }
+  .loop-item {
+    font-size: 10px; color: #8b949e;
+    display: flex; align-items: flex-start; gap: 5px; line-height: 1.35;
+  }
+  .loop-item::before { content: '▸'; font-size: 8px; margin-top: 2px; flex-shrink: 0; opacity: 0.5; }
+
+  /* System Prompt */
+  .sys-prompt-bar {
+    background: #0d1117; border: 1px solid #21262d;
+    border-radius: 6px; padding: 8px 11px;
+    display: flex; flex-wrap: wrap; gap: 5px; align-items: center;
+  }
+  .sys-prompt-label {
+    font-size: 9px; color: #6e7681; font-family: 'JetBrains Mono', monospace;
+    font-weight: 600; width: 100%; margin-bottom: 3px;
+  }
+  .prompt-tag {
+    background: #161b22; border: 1px solid #30363d; border-radius: 4px;
+    padding: 2px 6px; font-size: 9.5px;
+    font-family: 'JetBrains Mono', monospace; color: #c9d1d9;
+  }
+
+  /* Storage */
+  .storage-section {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 10px; padding: 11px 14px; position: relative;
+  }
+  .storage-section::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    border-radius: 10px 10px 0 0;
+    background: linear-gradient(90deg, #3d2b00, #e3b341, #f0c040);
+  }
+  .storage-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 5px; }
+  .storage-item {
+    background: #0d1117; border: 1px solid #21262d;
+    border-radius: 6px; padding: 7px 9px;
+  }
+  .storage-name {
+    font-size: 10.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+    color: #e3b341; margin-bottom: 3px;
+  }
+  .storage-desc { font-size: 9px; color: #6e7681; line-height: 1.5; }
+
+  /* ========== RIGHT PANEL (Output) ========== */
+  .output-panel {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 10px; padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .output-item { border-radius: 8px; padding: 10px; border: 1px solid; }
+  .output-response { background: #0d2137; border-color: #1f6feb; }
+  .output-alert    { background: #2a1900; border-color: #d29922; }
+  .output-ok       { background: #0a2018; border-color: #2ea043; }
+  .output-title {
+    font-size: 11.5px; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace; margin-bottom: 4px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .output-response .output-title { color: #58a6ff; }
+  .output-alert    .output-title { color: #e3b341; }
+  .output-ok       .output-title { color: #56d364; }
+  .output-desc { font-size: 10.5px; color: #8b949e; line-height: 1.5; }
+
+  /* ========== PROTOCOL BADGE ========== */
+  .protocol-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: #0d1117; border: 1px solid #30363d; border-radius: 5px;
+    padding: 2px 7px; font-size: 9px;
+    font-family: 'JetBrains Mono', monospace; color: #79c0ff;
+  }
+  .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #56d364;
+    animation: pulse 2s infinite; flex-shrink: 0;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(86,211,100,0.4); }
+    50%       { opacity: 0.7; box-shadow: 0 0 0 4px rgba(86,211,100,0); }
+  }
+
+  /* ========== DATA FLOW SECTION (new) ========== */
+  .flow-section {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 10px; padding: 14px 16px; position: relative;
+    overflow: hidden;
+  }
+  .flow-section::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    border-radius: 10px 10px 0 0;
+    background: linear-gradient(90deg, #1f6feb, #8957e5, #d29922);
+  }
+  .flow-row {
+    display: flex; flex-direction: column; gap: 10px; margin-top: 6px;
+  }
+  .flow-path {
+    display: flex; align-items: center; gap: 0;
+    background: #0d1117; border-radius: 8px; padding: 9px 12px;
+    border: 1px solid #21262d; position: relative; overflow: hidden;
+  }
+  .flow-path-label {
+    font-size: 9px; font-weight: 700; letter-spacing: 1px;
+    text-transform: uppercase; font-family: 'JetBrains Mono', monospace;
+    writing-mode: horizontal-tb; white-space: nowrap;
+    padding-right: 10px; min-width: 48px;
+  }
+  .flow-path-msg .flow-path-label  { color: #58a6ff; }
+  .flow-path-hb  .flow-path-label  { color: #e3b341; }
+  .flow-path-mem .flow-path-label  { color: #bc8cff; }
+
+  .flow-steps { display: flex; align-items: center; gap: 0; flex-wrap: nowrap; overflow-x: auto; }
+  .flow-node {
+    display: flex; align-items: center; gap: 5px;
+    background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+    padding: 5px 9px; white-space: nowrap; font-size: 10.5px;
+  }
+  .flow-node-text { color: #c9d1d9; }
+  .flow-node-sub  { font-size: 9px; color: #6e7681; font-family: 'JetBrains Mono', monospace; }
+
+  .flow-arrow {
+    font-size: 12px; padding: 0 4px; flex-shrink: 0;
+  }
+  .flow-arrow-msg { color: #1f6feb; }
+  .flow-arrow-hb  { color: #d29922; }
+  .flow-arrow-mem { color: #8957e5; }
+
+  /* ========== CRON / HEARTBEAT DETAIL SECTION (new) ========== */
+  .hb-section {
+    background: #161b22; border: 1px solid #d29922;
+    border-radius: 10px; padding: 14px 16px; position: relative;
+  }
+  .hb-section::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    border-radius: 10px 10px 0 0;
+    background: linear-gradient(90deg, #3d2b00, #d29922, #e3b341, #ffd166);
+  }
+  .hb-body { display: grid; grid-template-columns: 1fr 1fr 3fr; gap: 10px; margin-top: 6px; }
+
+  /* Heartbeat config */
+  .hb-config {
+    background: #0d1117; border: 1px solid #21262d; border-radius: 7px; padding: 10px;
+  }
+  .hb-config-title {
+    font-size: 10px; font-weight: 700; color: #e3b341;
+    font-family: 'JetBrains Mono', monospace; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .hb-config-item {
+    display: flex; flex-direction: column; gap: 1px; margin-bottom: 7px;
+  }
+  .hb-key   { font-size: 9px; color: #6e7681; font-family: 'JetBrains Mono', monospace; }
+  .hb-value { font-size: 10.5px; color: #c9d1d9; font-weight: 600; }
+  .hb-note  { font-size: 8.5px; color: #484f58; font-family: 'JetBrains Mono', monospace; }
+
+  /* Active Hours */
+  .hb-hours {
+    background: #0d1117; border: 1px solid #21262d; border-radius: 7px; padding: 10px;
+  }
+  .hb-hours-title {
+    font-size: 10px; font-weight: 700; color: #e3b341;
+    font-family: 'JetBrains Mono', monospace; margin-bottom: 8px;
+  }
+  .hour-bar {
+    display: flex; height: 18px; border-radius: 4px; overflow: hidden;
+    border: 1px solid #30363d; margin-bottom: 5px;
+  }
+  .hour-off { background: #21262d; flex: 8; }
+  .hour-on  { background: linear-gradient(90deg, #3d2b00, #d29922); flex: 16; }
+  .hour-off2 { background: #21262d; flex: 2; } /* 22-24 */
+  .hour-labels {
+    display: flex; justify-content: space-between;
+    font-size: 8px; color: #6e7681; font-family: 'JetBrains Mono', monospace;
+  }
+  .hb-hours-note {
+    font-size: 9px; color: #8b949e; margin-top: 8px; line-height: 1.5;
+  }
+
+  /* Heartbeat Flow diagram */
+  .hb-flow {
+    background: #0d1117; border: 1px solid #21262d; border-radius: 7px; padding: 10px;
+  }
+  .hb-flow-title {
+    font-size: 10px; font-weight: 700; color: #e3b341;
+    font-family: 'JetBrains Mono', monospace; margin-bottom: 8px;
+  }
+  .hb-steps {
+    display: flex; align-items: flex-start; gap: 0; flex-wrap: nowrap;
+  }
+  .hb-step {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    flex: 1; min-width: 90px;
+  }
+  .hb-step-box {
+    width: 100%; background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; padding: 7px 6px; text-align: center;
+    font-size: 9.5px; color: #c9d1d9; line-height: 1.4;
+  }
+  .hb-step-box.active   { border-color: #d29922; background: #2a1a00; }
+  .hb-step-box.decision { border-color: #8957e5; background: #1c1030; border-radius: 6px; }
+  .hb-step-box.ok       { border-color: #2ea043; background: #0a2018; }
+  .hb-step-box.alert    { border-color: #d29922; background: #2a1900; }
+  .hb-step-num {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #d29922; color: #0d1117;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+  }
+  .hb-arrow {
+    font-size: 14px; color: #d29922; padding: 0 3px;
+    margin-top: 20px; flex-shrink: 0;
+  }
+  .hb-branch {
+    display: flex; flex-direction: column; gap: 6px;
+    flex: 1.2;
+  }
+  .hb-branch-item {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; padding: 6px 8px; font-size: 9px; color: #8b949e;
+  }
+  .hb-branch-item.ok    { border-color: #2ea043; background: #0a2018; color: #56d364; }
+  .hb-branch-item.alert { border-color: #d29922; background: #2a1900; color: #e3b341; }
+
+  /* ========== BOTTOM PILLARS ========== */
+  .pillars-section { display: flex; flex-direction: column; gap: 5px; }
+  .pillars-label {
+    font-size: 9.5px; color: #6e7681; font-family: 'JetBrains Mono', monospace;
+    text-align: center; letter-spacing: 2px;
+  }
+  .pillars-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+  .pillar {
+    border-radius: 8px; padding: 11px 13px; border: 1px solid;
+    display: flex; flex-direction: column; gap: 5px;
+  }
+  .pillar-gateway { background: #0d1e38; border-color: #1f6feb; }
+  .pillar-runtime { background: #0e2618; border-color: #2ea043; }
+  .pillar-channel { background: #1c1030; border-color: #8957e5; }
+  .pillar-skills  { background: #261a00; border-color: #d29922; }
+  .pillar-name {
+    font-size: 12.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+  }
+  .pillar-gateway .pillar-name { color: #58a6ff; }
+  .pillar-runtime .pillar-name { color: #56d364; }
+  .pillar-channel .pillar-name { color: #bc8cff; }
+  .pillar-skills  .pillar-name { color: #e3b341; }
+  .pillar-sub  { font-size: 9px; color: #8b949e; line-height: 1.4; }
+  .pillar-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+  .pillar-tag {
+    background: #0d1117; border: 1px solid #30363d; border-radius: 4px;
+    padding: 1px 5px; font-size: 9px; font-family: 'JetBrains Mono', monospace; color: #6e7681;
+  }
+
+  .version-tag {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: #3d444d; text-align: center; margin-top: 6px;
+  }
+
+  /* ===== UPDATES BANNER ===== */
+  .updates-banner {
+    width: 1240px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-left: 3px solid #238636;
+    border-radius: 8px;
+    padding: 14px 20px;
+    margin-top: 12px;
+  }
+  .updates-banner-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: #56d364;
+    margin-bottom: 10px;
+    letter-spacing: 1px;
+  }
+  .updates-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .update-item {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 10px;
+  }
+  .update-item-title {
+    color: #58a6ff;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+  .update-item-desc {
+    color: #8b949e;
+    line-height: 1.6;
+  }
+  .update-tag {
+    display: inline-block;
+    background: #1f6feb22;
+    border: 1px solid #1f6feb44;
+    color: #79c0ff;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 9px;
+    font-family: 'JetBrains Mono', monospace;
+    margin-right: 3px;
+  }
+</style>
+</head>
+<body>
+
+<h1>🦞 OpenClaw Architecture</h1>
+<div class="subtitle">v2026.3.22+ · 深度架构解析 + 数据流 + 定时任务 + Hooks + Multi-Agent · 2026-03-24 更新</div>
+
+<!-- LEGEND -->
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#1f6feb"></div>消息驱动路径 (Flow A)
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#d29922"></div>Heartbeat 主动路径 (Flow B)
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#8957e5"></div>Memory 读写路径 (Flow C)
+  </div>
+  <div class="legend-item">
+    <span class="step step-msg">A</span> 消息路径步骤
+  </div>
+  <div class="legend-item">
+    <span class="step step-hb">B</span> Heartbeat 步骤
+  </div>
+  <div class="legend-item">
+    <span class="step step-mem">C</span> Memory 步骤
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#0e7490"></div>Cron 定时任务路径 (Flow D)
+  </div>
+  <div class="legend-item">
+    <span class="step step-cron">D</span> Cron 步骤
+  </div>
+</div>
+
+<div class="diagram">
+
+  <!-- ===== TRIGGER ROW ===== -->
+  <div class="trigger-row">
+    <div class="trigger-card trigger-passive">
+      <div class="trigger-label">
+        <span class="step step-msg">A1</span>
+        触发源① 被动响应
+      </div>
+      <div class="trigger-title">💬 Chat Apps（消息驱动）</div>
+      <div class="trigger-detail">用户通过任意平台发送消息 → Channel Plugin 接收 → 转发 Gateway → 触发 Agent Loop</div>
+      <div class="platform-chips">
+        <span class="chip">WhatsApp</span><span class="chip">Telegram</span>
+        <span class="chip">Slack</span><span class="chip">Discord</span>
+        <span class="chip">Signal</span><span class="chip">iMessage</span>
+        <span class="chip">Line</span><span class="chip">SMS</span>
+        <span class="chip">Email</span><span class="chip">10+ 平台</span>
+      </div>
+    </div>
+    <div class="trigger-card trigger-active">
+      <div class="trigger-label">
+        <span class="step step-hb">B1</span>
+        触发源② 主动唤醒
+      </div>
+      <div class="trigger-title">⏰ Heartbeat Timer（AI 主动性）</div>
+      <div class="trigger-detail">默认每 30 分钟触发 · 活跃时段 08:00-22:00 · 读取 HEARTBEAT.md checklist（inbox / calendar / tasks / reminders）</div>
+      <div class="platform-chips">
+        <span class="chip">setInterval 调度</span>
+        <span class="chip">Active Hours 时区感知</span>
+        <span class="chip">智能静默 HEARTBEAT_OK</span>
+        <span class="chip">热重载支持</span>
+      </div>
+    </div>
+    <div class="trigger-card trigger-cron">
+      <div class="trigger-label">
+        <span class="step step-cron">D1</span>
+        触发源③ 用户定时任务
+      </div>
+      <div class="trigger-title">🗓 Cron Tasks（计划任务）</div>
+      <div class="trigger-detail">用户通过 cron.add RPC 配置定时任务 · Gateway 内嵌 Cron 引擎调度 · 到时执行指定 Agent 指令</div>
+      <div class="platform-chips">
+        <span class="chip">cron.add / list / run</span>
+        <span class="chip">cron expression</span>
+        <span class="chip">Gateway RPC 管理</span>
+        <span class="chip">event:cron 广播</span>
+        <span class="chip">独立于 Heartbeat</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== CHANNEL LAYER ===== -->
+  <div class="conn-row">
+    <div class="conn-line conn-line-msg"></div>
+    <div class="conn-text"><span class="step step-msg" style="width:16px;height:16px;font-size:9px">A2</span> inbound messages · plugin 解析</div>
+    <div class="conn-line conn-line-msg"></div>
+  </div>
+
+  <div class="channel-section">
+    <div class="section-title">
+      <span style="color:#56d364">📡 Channel Plugin Layer</span>
+      <span class="section-badge badge-green">数据平面 · 消息面 · 插件化架构 · src/telegram/ · src/slack/ · ...</span>
+    </div>
+    <div class="channel-grid">
+      <div class="channel-item">WhatsApp<span>Baileys</span></div>
+      <div class="channel-item">Telegram<span>grammY</span></div>
+      <div class="channel-item">Slack<span>Bolt.js</span></div>
+      <div class="channel-item">Discord<span>discord.js</span></div>
+      <div class="channel-item">Signal<span>signal-cli</span></div>
+      <div class="channel-item">iMessage<span>imsg</span></div>
+      <div class="channel-item">Line<span>Plugin</span></div>
+      <div class="channel-item">SMS<span>Android</span></div>
+      <div class="channel-item">Email<span>SMTP/IMAP</span></div>
+      <div class="channel-item">WebChat<span>Lit UI</span></div>
+    </div>
+  </div>
+
+  <div class="conn-row">
+    <div class="conn-line conn-line-msg"></div>
+    <div class="conn-text">
+      <span class="step step-msg" style="width:16px;height:16px;font-size:9px">A3</span> 转发到 Gateway WebSocket
+      &nbsp;|&nbsp;
+      <span class="step step-hb" style="width:16px;height:16px;font-size:9px">B2</span> Heartbeat → Gateway 内部调度
+      &nbsp;|&nbsp;
+      <span class="step step-cron" style="width:16px;height:16px;font-size:9px">D2</span> Cron 到期 → Gateway 执行
+    </div>
+    <div class="conn-line conn-line-both"></div>
+  </div>
+
+  <!-- ===== MAIN 3-COL ===== -->
+  <div class="main-area">
+
+    <!-- LEFT: Client Layer -->
+    <div class="side-panel">
+      <div class="panel-title" style="color:#79c0ff">🖥 Client Layer<br>
+        <span style="color:#6e7681;font-size:8.5px;font-weight:400">操作平面 · WebSocket RPC<br>ws://127.0.0.1:18789</span>
+      </div>
+
+      <div class="client-group">
+        <div class="client-group-label" style="color:#58a6ff">macOS App</div>
+        <div class="client-item">
+          <div class="client-name">🍎 MenuBar App</div>
+          <div class="client-desc">Swift · 413 files<br>Voice Wake · WebChat<br>Node mode (system.run)</div>
+        </div>
+      </div>
+      <div class="client-group">
+        <div class="client-group-label" style="color:#58a6ff">Mobile Nodes</div>
+        <div class="client-item">
+          <div class="client-name">📱 iOS Node</div>
+          <div class="client-desc">Swift · Camera · Canvas<br>Voice · Screen · TTS+STT</div>
+        </div>
+        <div class="client-item">
+          <div class="client-name">🤖 Android Node</div>
+          <div class="client-desc">Kotlin · Camera · Canvas<br>SMS · Screen · node.invoke</div>
+        </div>
+      </div>
+      <div class="client-group">
+        <div class="client-group-label" style="color:#58a6ff">CLI & Web</div>
+        <div class="client-item">
+          <div class="client-name">⌨️ CLI</div>
+          <div class="client-desc">TypeScript · 157 files<br>gateway / agent / send<br>onboarding / doctor</div>
+        </div>
+        <div class="client-item">
+          <div class="client-name">🌐 WebChat UI</div>
+          <div class="client-desc">Lit · 128 files<br>SSH Tunnel / Tailscale<br>历史 · 流式显示</div>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="annotation">
+        <div class="anno-title">WS 握手协议</div>
+        <div>← connect.challenge (nonce)</div>
+        <div>→ connect {auth, caps, role}</div>
+        <div>← hello-ok {deviceToken}</div>
+        <div style="color:#2ea043;margin-top:3px">超时: 30s · 签名验证</div>
+        <div style="color:#2ea043">Operator / Node 双角色</div>
+      </div>
+      <div class="annotation">
+        <div class="anno-title">事件订阅</div>
+        <div>← event:heartbeat（广播）</div>
+        <div>← event:agent.delta（流）</div>
+        <div>← event:presence（状态）</div>
+        <div style="color:#d29922;margin-top:3px">dropIfSlow: true 保护</div>
+      </div>
+    </div>
+
+    <!-- CENTER -->
+    <div class="center-panel">
+
+      <!-- Gateway -->
+      <div class="gateway-section">
+        <div class="section-title">
+          <span style="color:#79c0ff">🔮 Gateway</span>
+          <span class="protocol-badge"><span class="dot"></span>ws://127.0.0.1:18789</span>
+          <span class="section-badge badge-blue">控制平面 · src/gateway/ 187 files · One Per Host</span>
+        </div>
+        <div class="gateway-grid">
+          <div class="gw-item">
+            <div class="gw-item-title">
+              <span class="step step-msg" style="width:16px;height:16px;font-size:8px">A4</span>
+              WebSocket Server
+            </div>
+            <div class="gw-item-detail">JSON RPC 帧协议<br>req / res / event 三帧<br>100+ Gateway Methods<br>AJV TypeBox Schema 验证<br>事件广播推送所有客户端</div>
+          </div>
+          <div class="gw-item">
+            <div class="gw-item-title">Session Management</div>
+            <div class="gw-item-detail">sessions.json 元数据<br>.jsonl 对话历史<br>文件锁 + 原子写入<br>45s TTL 内存缓存<br>Session Compaction</div>
+          </div>
+          <div class="gw-item">
+            <div class="gw-item-title">Config Management</div>
+            <div class="gw-item-detail">~/.openclaw/openclaw.json<br>热重载 Hybrid Mode<br>安全变更立即生效<br>SIGUSR1 进程重启<br>config.patch RPC</div>
+          </div>
+          <div class="gw-item">
+            <div class="gw-item-title">
+              <span class="step step-hb" style="width:16px;height:16px;font-size:8px">B3</span>
+              Cron Service
+            </div>
+            <div class="gw-item-detail">内嵌定时调度引擎<br>Heartbeat Runner<br>setInterval 驱动<br>cron.list/add/run RPC<br>配置热重载自动重启</div>
+          </div>
+          <div class="gw-item">
+            <div class="gw-item-title">Service Discovery</div>
+            <div class="gw-item-detail">Bonjour/mDNS 局域网<br>Tailscale 内网穿透<br>One Gateway/Host 约束<br>多 Profile 端口隔离<br>18789(ws) / 18793(canvas)</div>
+          </div>
+          <div class="gw-item">
+            <div class="gw-item-title">Health & Presence</div>
+            <div class="gw-item-detail">LLM 连通性检测<br>Channel 在线状态<br>event:heartbeat 广播<br>launchd/systemd 守护<br>Canvas host :18793</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="conn-row">
+        <div class="conn-line conn-line-msg"></div>
+        <div class="conn-text">
+          <span class="step step-msg" style="width:16px;height:16px;font-size:8px">A5</span> agent.run RPC · streaming
+          &nbsp;|&nbsp;
+          <span class="step step-hb" style="width:16px;height:16px;font-size:8px">B4</span> heartbeat mode run
+        </div>
+        <div class="conn-line conn-line-both"></div>
+      </div>
+
+      <!-- Agent Loop -->
+      <div class="agent-loop">
+        <div class="agent-loop-header">
+          <span class="agent-loop-title-text">⚙️ Agent Loop（核心执行循环）</span>
+          <span class="agent-loop-subtitle">src/agents/ 436 files · Pi-embedded · RPC mode</span>
+        </div>
+
+        <div class="agent-loop-grid">
+          <div class="loop-box loop-box-llm">
+            <div class="loop-box-title">🧠 LLM</div>
+            <div class="loop-items">
+              <div class="loop-item">OpenAI / Claude / Gemini</div>
+              <div class="loop-item">Qwen / Chutes / Vertex</div>
+              <div class="loop-item">理解意图 · 规划步骤</div>
+              <div class="loop-item">Thinking 模式支持</div>
+              <div class="loop-item">多模型故障转移</div>
+              <div class="loop-item">Streaming 增量输出</div>
+              <div class="loop-item">Token 计数 + 限制</div>
+              <div class="loop-item">Session Compaction</div>
+              <div class="loop-item">Vision 多模态支持</div>
+            </div>
+          </div>
+          <div class="loop-box loop-box-tools">
+            <div class="loop-box-title">🛠 Tools</div>
+            <div class="loop-items">
+              <div class="loop-item">Browser（CDP 控制）</div>
+              <div class="loop-item">Canvas + A2UI 界面</div>
+              <div class="loop-item">node.invoke 跨设备</div>
+              <div class="loop-item">Cron 任务管理</div>
+              <div class="loop-item">Message 多平台发送</div>
+              <div class="loop-item">TTS 语音合成</div>
+              <div class="loop-item">Web Search / Fetch</div>
+              <div class="loop-item">Image + PDF 分析</div>
+              <div class="loop-item">Sessions 子 Agent</div>
+              <div class="loop-item">subagents list/steer/kill</div>
+              <div class="loop-item">image_generate 图片生成</div>
+              <div class="loop-item">Plugin 第三方工具</div>
+              <div class="loop-item">Sandbox 隔离（Docker/SSH/OpenShell）</div>
+            </div>
+          </div>
+          <div class="loop-box loop-box-context">
+            <div class="loop-box-title">
+              <span class="step step-mem" style="width:16px;height:16px;font-size:8px;margin-right:3px">C1</span>
+              📚 Context
+            </div>
+            <div class="loop-items">
+              <div class="loop-item">Memory 持久记忆检索</div>
+              <div class="loop-item">Hybrid Search (Vec+FTS)</div>
+              <div class="loop-item">Sessions 对话历史</div>
+              <div class="loop-item">Skills 两层动态加载</div>
+              <div class="loop-item">Group Chat 上下文</div>
+              <div class="loop-item">Multi-Agent 通信</div>
+              <div class="loop-item">Subagent Spawn</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sys-prompt-bar">
+          <div class="sys-prompt-label">📄 System Prompt 层（每次 Session 动态注入 · 关注点分离设计）</div>
+          <span class="prompt-tag">IDENTITY.md 身份</span>
+          <span class="prompt-tag">SOUL.md 价值观</span>
+          <span class="prompt-tag">AGENTS.md 规范</span>
+          <span class="prompt-tag">USER.md 用户信息</span>
+          <span class="prompt-tag">TOOLS.md 工具配置</span>
+          <span class="prompt-tag">MEMORY.md 记忆摘要</span>
+          <span class="prompt-tag">SKILLS 动态发现</span>
+          <span class="prompt-tag">BOOTSTRAP.md 一次性</span>
+        </div>
+      </div>
+
+      <div class="conn-row">
+        <div class="conn-line" style="background:linear-gradient(90deg,transparent,#8957e555,transparent)"></div>
+        <div class="conn-text">
+          <span class="step step-mem" style="width:16px;height:16px;font-size:8px">C2</span> 写入对话历史 · File Watcher 触发索引
+          &nbsp;|&nbsp;
+          <span class="step step-mem" style="width:16px;height:16px;font-size:8px">C3</span> Hybrid Search 注入 Context
+        </div>
+        <div class="conn-line" style="background:linear-gradient(90deg,transparent,#8957e555,transparent)"></div>
+      </div>
+
+      <!-- Storage -->
+      <div class="storage-section">
+        <div class="section-title">
+          <span style="color:#e3b341">🗄 Storage Layer</span>
+          <span class="section-badge badge-orange">~/.openclaw/ · Local-First · 数据不离开本地</span>
+        </div>
+        <div class="storage-grid">
+          <div class="storage-item">
+            <div class="storage-name">Session Store</div>
+            <div class="storage-desc">sessions.json 元数据<br>sessionKey → SessionEntry<br>独占文件锁 + 原子 rename<br>45s TTL 内存缓存<br>多 Agent 隔离</div>
+          </div>
+          <div class="storage-item">
+            <div class="storage-name">Session Transcript</div>
+            <div class="storage-desc">&lt;sessionId&gt;.jsonl 历史<br>每行一个 JSON 对象<br>Agent 间传递 · Compaction<br>
+              <span style="color:#8957e5">→ File Watcher 监听</span><br>
+              <span style="color:#8957e5">→ 自动索引到 Memory</span>
+            </div>
+          </div>
+          <div class="storage-item">
+            <div class="storage-name">Memory Index</div>
+            <div class="storage-desc">SQLite + sqlite-vec<br>Vector 余弦距离搜索<br>FTS5 全文关键词搜索<br>MMR + 时间衰减混合排序<br>6种 Embedding 提供商<br>QMD 外部后端（可选）<br>5s 批处理防抖动更新</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Output Panel -->
+    <div class="output-panel">
+      <div class="panel-title" style="color:#56d364">📤 Output<br>
+        <span style="color:#6e7681;font-size:8.5px;font-weight:400">判断是否需要响应</span>
+      </div>
+
+      <div class="output-item output-response">
+        <div class="output-title">
+          <span class="step step-msg" style="width:16px;height:16px;font-size:8px">A6</span>
+          💬 Response
+        </div>
+        <div class="output-desc">回复到对应频道（多平台统一 Message Tool 发送）</div>
+      </div>
+
+      <div class="output-item output-alert">
+        <div class="output-title">
+          <span class="step step-hb" style="width:16px;height:16px;font-size:8px">B6</span>
+          🔔 Alert / Proactive
+        </div>
+        <div class="output-desc">有事项 → 主动发送提醒到用户指定频道<br><span style="font-size:9px;color:#6e7681">deliverOutboundPayloads()</span></div>
+      </div>
+
+      <div class="output-item output-ok">
+        <div class="output-title">
+          <span class="step step-hb" style="width:16px;height:16px;font-size:8px">B7</span>
+          ✅ HEARTBEAT_OK
+        </div>
+        <div class="output-desc">无需打扰：静默响应<br>阈值 ≤ 300 字符则跳过发送<br><span style="font-size:9px;color:#6e7681">stripHeartbeatToken()</span></div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="annotation">
+        <div class="anno-title">Streaming 事件流</div>
+        <div>← event:agent.delta</div>
+        <div>→ tool_call delta</div>
+        <div>→ assistant delta</div>
+        <div>→ final summary</div>
+      </div>
+      <div class="annotation">
+        <div class="anno-title">跨设备 node.invoke</div>
+        <div>📷 Camera 拍照</div>
+        <div>🖼 Canvas 渲染</div>
+        <div>📍 Location 定位</div>
+        <div>🎙 Voice Wake</div>
+        <div>🔊 Talk Mode TTS+STT</div>
+      </div>
+      <div class="annotation">
+        <div class="anno-title">Policy 权限控制</div>
+        <div>Global → Agent</div>
+        <div>→ Provider → Sandbox</div>
+        <div>→ Group 多层权限</div>
+        <div style="color:#d29922;margin-top:3px">Idempotency Key 保证</div>
+      </div>
+    </div>
+
+  </div><!-- /main-area -->
+
+  <!-- ===== DATA FLOW SECTION ===== -->
+  <div class="flow-section">
+    <div class="section-title">
+      <span style="color:#e6edf3">🔀 数据流路径</span>
+      <span style="font-size:10px;color:#8b949e;font-weight:400;font-family:sans-serif">三条核心数据流的完整链路</span>
+    </div>
+    <div class="flow-row">
+
+      <!-- Flow A: 消息路径 -->
+      <div class="flow-path flow-path-msg">
+        <div class="flow-path-label">Flow A<br>消息</div>
+        <div class="flow-steps">
+          <div class="flow-node">
+            <span class="step step-msg" style="width:16px;height:16px;font-size:8px">A1</span>
+            <div><div class="flow-node-text">用户发送</div><div class="flow-node-sub">Chat App</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-msg">→</div>
+          <div class="flow-node">
+            <span class="step step-msg" style="width:16px;height:16px;font-size:8px">A2</span>
+            <div><div class="flow-node-text">Channel Plugin</div><div class="flow-node-sub">解析 · 标准化</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-msg">→</div>
+          <div class="flow-node">
+            <span class="step step-msg" style="width:16px;height:16px;font-size:8px">A3</span>
+            <div><div class="flow-node-text">Gateway WS</div><div class="flow-node-sub">inbound event</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-msg">→</div>
+          <div class="flow-node">
+            <span class="step step-msg" style="width:16px;height:16px;font-size:8px">A4</span>
+            <div><div class="flow-node-text">RPC Dispatch</div><div class="flow-node-sub">85+ methods</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-msg">→</div>
+          <div class="flow-node">
+            <span class="step step-msg" style="width:16px;height:16px;font-size:8px">A5</span>
+            <div><div class="flow-node-text">Agent Loop</div><div class="flow-node-sub">LLM + Tools</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-msg">→</div>
+          <div class="flow-node">
+            <span class="step step-msg" style="width:16px;height:16px;font-size:8px">A6</span>
+            <div><div class="flow-node-text">Message Tool</div><div class="flow-node-sub">多平台发送</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-msg">→</div>
+          <div class="flow-node">
+            <div><div class="flow-node-text">用户收到回复</div><div class="flow-node-sub">Channel 推送</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Flow B: Heartbeat路径 -->
+      <div class="flow-path flow-path-hb">
+        <div class="flow-path-label">Flow B<br>定时</div>
+        <div class="flow-steps">
+          <div class="flow-node">
+            <span class="step step-hb" style="width:16px;height:16px;font-size:8px">B1</span>
+            <div><div class="flow-node-text">Cron 触发</div><div class="flow-node-sub">setInterval 30m</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-hb">→</div>
+          <div class="flow-node">
+            <span class="step step-hb" style="width:16px;height:16px;font-size:8px">B2</span>
+            <div><div class="flow-node-text">Active Hours?</div><div class="flow-node-sub">08:00-22:00</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-hb">→</div>
+          <div class="flow-node">
+            <span class="step step-hb" style="width:16px;height:16px;font-size:8px">B3</span>
+            <div><div class="flow-node-text">读 HEARTBEAT.md</div><div class="flow-node-sub">构造 prompt</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-hb">→</div>
+          <div class="flow-node">
+            <span class="step step-hb" style="width:16px;height:16px;font-size:8px">B4</span>
+            <div><div class="flow-node-text">Agent Loop</div><div class="flow-node-sub">heartbeat mode</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-hb">→</div>
+          <div class="flow-node">
+            <span class="step step-hb" style="width:16px;height:16px;font-size:8px">B5</span>
+            <div><div class="flow-node-text">HEARTBEAT_OK?</div><div class="flow-node-sub">≤300 字符?</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-hb">→</div>
+          <div class="flow-node" style="background:#0a2018;border-color:#2ea043">
+            <span class="step step-hb" style="width:16px;height:16px;font-size:8px">B7</span>
+            <div><div class="flow-node-text" style="color:#56d364">静默跳过</div><div class="flow-node-sub">HEARTBEAT_OK</div></div>
+          </div>
+          <div class="flow-arrow" style="color:#d29922">/</div>
+          <div class="flow-node" style="background:#2a1900;border-color:#d29922">
+            <span class="step step-hb" style="width:16px;height:16px;font-size:8px">B6</span>
+            <div><div class="flow-node-text" style="color:#e3b341">发送 Alert</div><div class="flow-node-sub">有重要事项</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Flow C: Memory路径 -->
+      <div class="flow-path flow-path-mem">
+        <div class="flow-path-label">Flow C<br>记忆</div>
+        <div class="flow-steps">
+          <div class="flow-node">
+            <span class="step step-mem" style="width:16px;height:16px;font-size:8px">C1</span>
+            <div><div class="flow-node-text">Agent 生成回复</div><div class="flow-node-sub">对话结束</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-mem">→</div>
+          <div class="flow-node">
+            <span class="step step-mem" style="width:16px;height:16px;font-size:8px">C2</span>
+            <div><div class="flow-node-text">写 .jsonl 文件</div><div class="flow-node-sub">Session Transcript</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-mem">→</div>
+          <div class="flow-node">
+            <span class="step step-mem" style="width:16px;height:16px;font-size:8px">C3</span>
+            <div><div class="flow-node-text">File Watcher 触发</div><div class="flow-node-sub">chokidar 监听</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-mem">→</div>
+          <div class="flow-node">
+            <span class="step step-mem" style="width:16px;height:16px;font-size:8px">C4</span>
+            <div><div class="flow-node-text">Embedding 生成</div><div class="flow-node-sub">5s 防抖批处理</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-mem">→</div>
+          <div class="flow-node">
+            <span class="step step-mem" style="width:16px;height:16px;font-size:8px">C5</span>
+            <div><div class="flow-node-text">SQLite 写入</div><div class="flow-node-sub">Vec + FTS5 双索引</div></div>
+          </div>
+          <div class="flow-arrow flow-arrow-mem">→</div>
+          <div class="flow-node">
+            <div><div class="flow-node-text">下次 Hybrid Search</div><div class="flow-node-sub">注入 Context</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== HEARTBEAT DETAIL SECTION ===== -->
+  <div class="hb-section">
+    <div class="section-title">
+      <span style="color:#e3b341">⏰ 定时任务系统 — Heartbeat 详解</span>
+      <span style="font-size:10px;color:#8b949e;font-weight:400;font-family:sans-serif">
+        src/infra/heartbeat-runner.ts · src/gateway/server.impl.ts:414
+      </span>
+    </div>
+    <div class="hb-body">
+
+      <!-- Config -->
+      <div class="hb-config">
+        <div class="hb-config-title">⚙️ HeartbeatSummary 配置</div>
+        <div class="hb-config-item">
+          <div class="hb-key">every</div>
+          <div class="hb-value">"30m"</div>
+          <div class="hb-note">DEFAULT_HEARTBEAT_EVERY</div>
+        </div>
+        <div class="hb-config-item">
+          <div class="hb-key">ackMaxChars</div>
+          <div class="hb-value">300 字符</div>
+          <div class="hb-note">HEARTBEAT_OK 阈值</div>
+        </div>
+        <div class="hb-config-item">
+          <div class="hb-key">target</div>
+          <div class="hb-value">"last" / channel</div>
+          <div class="hb-note">发送到最近的频道</div>
+        </div>
+        <div class="hb-config-item">
+          <div class="hb-key">session</div>
+          <div class="hb-value">main session</div>
+          <div class="hb-note">默认在主会话中执行</div>
+        </div>
+        <div class="hb-config-item">
+          <div class="hb-key">model</div>
+          <div class="hb-value">可单独配置</div>
+          <div class="hb-note">与主 LLM 解耦</div>
+        </div>
+        <div style="margin-top:8px;padding:6px;background:#0d1117;border-radius:5px;font-size:9px;color:#6e7681;font-family:'JetBrains Mono',monospace;line-height:1.5">
+          队列保护：主队列忙时<br>→ 跳过本次 Heartbeat<br>→ emit heartbeat:skipped<br>热重载：配置变更自动<br>→ stop() + restart()
+        </div>
+      </div>
+
+      <!-- Active Hours -->
+      <div class="hb-hours">
+        <div class="hb-hours-title">🕐 Active Hours 时区感知</div>
+        <div class="hour-bar">
+          <div class="hour-off"></div>
+          <div class="hour-on"></div>
+          <div class="hour-off2"></div>
+        </div>
+        <div class="hour-labels">
+          <span>00:00</span>
+          <span>08:00</span>
+          <span>活跃时段</span>
+          <span>22:00</span>
+          <span>24:00</span>
+        </div>
+        <div class="hb-hours-note">
+          · 基于 Luxon DateTime 时区运算<br>
+          · 自动读取用户时区配置<br>
+          · 未配置则 24h 全天执行<br>
+          · 夜间自动跳过，避免打扰<br>
+          · isWithinActiveHours() 检查
+        </div>
+      </div>
+
+      <!-- Heartbeat Flow -->
+      <div class="hb-flow">
+        <div class="hb-flow-title">🔄 Heartbeat 执行流程（src/infra/heartbeat-runner.ts）</div>
+        <div class="hb-steps">
+
+          <div class="hb-step">
+            <div class="hb-step-num">B1</div>
+            <div class="hb-step-box active">
+              ⏰ Cron 触发<br>
+              <span style="font-size:8px;color:#6e7681">setInterval 30m<br>Gateway 内嵌</span>
+            </div>
+          </div>
+          <div class="hb-arrow">→</div>
+
+          <div class="hb-step">
+            <div class="hb-step-num">B2</div>
+            <div class="hb-step-box decision">
+              🕐 Active Hours?<br>
+              <span style="font-size:8px;color:#8b949e">isWithinActiveHours()<br>时区感知检查</span>
+            </div>
+          </div>
+          <div class="hb-arrow">→</div>
+
+          <div class="hb-step">
+            <div class="hb-step-num">B3</div>
+            <div class="hb-step-box active">
+              📋 构造 Prompt<br>
+              <span style="font-size:8px;color:#6e7681">读 HEARTBEAT.md<br>检查 systemEvents</span>
+            </div>
+          </div>
+          <div class="hb-arrow">→</div>
+
+          <div class="hb-step">
+            <div class="hb-step-num">B4</div>
+            <div class="hb-step-box active">
+              🧠 Agent Run<br>
+              <span style="font-size:8px;color:#6e7681">mode:"heartbeat"<br>main session</span>
+            </div>
+          </div>
+          <div class="hb-arrow">→</div>
+
+          <div class="hb-step">
+            <div class="hb-step-num">B5</div>
+            <div class="hb-step-box decision">
+              🤔 HEARTBEAT_OK?<br>
+              <span style="font-size:8px;color:#8b949e">stripHeartbeatToken()<br>≤300 字符?</span>
+            </div>
+          </div>
+          <div class="hb-arrow">→</div>
+
+          <div class="hb-branch">
+            <div class="hb-branch-item alert">
+              B6 🔔 有重要事项<br>
+              <span style="font-size:8px;color:#6e7681">deliverOutboundPayloads()<br>发送到目标频道</span>
+            </div>
+            <div class="hb-branch-item ok">
+              B7 ✅ HEARTBEAT_OK<br>
+              <span style="font-size:8px;color:#484f58">静默跳过，记录日志<br>不发送任何消息</span>
+            </div>
+          </div>
+          <div class="hb-arrow">→</div>
+
+          <div class="hb-step">
+            <div class="hb-step-num">★</div>
+            <div class="hb-step-box" style="border-color:#58a6ff;background:#0d2137">
+              📡 广播事件<br>
+              <span style="font-size:8px;color:#6e7681">broadcast("heartbeat")<br>dropIfSlow:true<br>客户端状态更新</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== HOOKS LIFECYCLE SECTION ===== -->
+  <div class="flow-section" style="border-color:#30363d">
+    <div class="section-title">
+      <span style="color:#e6edf3">🪝 Hooks 生命周期事件</span>
+      <span style="font-size:10px;color:#8b949e;font-weight:400;font-family:sans-serif">2026.3.3 新增 · src/hooks/internal-hooks.ts · src/plugins/types.ts</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">
+
+      <!-- Message Hooks Pipeline -->
+      <div style="background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:12px">
+        <div style="font-size:10.5px;font-weight:700;color:#79c0ff;font-family:'JetBrains Mono',monospace;margin-bottom:10px">
+          📨 消息处理 Hook 链路（Message Pipeline Hooks）
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+
+          <div style="display:flex;align-items:stretch;gap:6px">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+              <div style="width:8px;height:8px;border-radius:50%;background:#56d364;margin-top:4px"></div>
+              <div style="width:1px;flex:1;background:#30363d"></div>
+            </div>
+            <div style="background:#161b22;border:1px solid #2ea043;border-radius:6px;padding:8px 10px;flex:1">
+              <div style="font-size:10.5px;font-weight:700;color:#56d364;font-family:'JetBrains Mono',monospace">message:received</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:2px;line-height:1.4">入站消息触发 · Channel 解析后立即 · ctx含 from/to/text/attachments</div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:stretch;gap:6px">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+              <div style="width:8px;height:8px;border-radius:50%;background:#58a6ff;margin-top:4px"></div>
+              <div style="width:1px;flex:1;background:#30363d"></div>
+            </div>
+            <div style="background:#161b22;border:1px solid #1f6feb;border-radius:6px;padding:8px 10px;flex:1">
+              <div style="font-size:10.5px;font-weight:700;color:#58a6ff;font-family:'JetBrains Mono',monospace">message:transcribed</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:2px;line-height:1.4">音频转录完成后触发 · ctx含 transcript · bodyForAgent · channelId · internal-hooks.ts:99-138</div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:stretch;gap:6px">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+              <div style="width:8px;height:8px;border-radius:50%;background:#bc8cff;margin-top:4px"></div>
+              <div style="width:1px;flex:1;background:#30363d"></div>
+            </div>
+            <div style="background:#161b22;border:1px solid #8957e5;border-radius:6px;padding:8px 10px;flex:1">
+              <div style="font-size:10.5px;font-weight:700;color:#bc8cff;font-family:'JetBrains Mono',monospace">message:preprocessed</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:2px;line-height:1.4">媒体理解·链接摘要全部完成后触发 · ctx含 bodyForAgent(完整富文本) · internal-hooks.ts:140-184</div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:stretch;gap:6px">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+              <div style="width:8px;height:8px;border-radius:50%;background:#e3b341;margin-top:4px"></div>
+              <div style="width:1px;flex:1;background:#30363d"></div>
+            </div>
+            <div style="background:#161b22;border:1px solid #d29922;border-radius:6px;padding:8px 10px;flex:1">
+              <div style="font-size:10.5px;font-weight:700;color:#e3b341;font-family:'JetBrains Mono',monospace">message:sent</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:2px;line-height:1.4">回复发出后触发 · ctx含 to/content/success/channelId/isGroup/groupId · internal-hooks.ts:70-96</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Session Hooks + Plugin Hooks -->
+      <div style="display:flex;flex-direction:column;gap:8px">
+
+        <div style="background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:12px">
+          <div style="font-size:10.5px;font-weight:700;color:#79c0ff;font-family:'JetBrains Mono',monospace;margin-bottom:8px">
+            🔄 Session 生命周期 Hooks
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <div style="background:#161b22;border:1px solid #2ea043;border-radius:6px;padding:8px">
+              <div style="font-size:10px;font-weight:700;color:#56d364;font-family:'JetBrains Mono',monospace">session_start</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:3px;line-height:1.4">sessionId · sessionKey<br>resumedFrom? (续写场景)<br>plugins/types.ts:573-585</div>
+            </div>
+            <div style="background:#161b22;border:1px solid #f85149;border-radius:6px;padding:8px">
+              <div style="font-size:10px;font-weight:700;color:#f85149;font-family:'JetBrains Mono',monospace">session_end</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:3px;line-height:1.4">sessionId · sessionKey<br>messageCount · durationMs<br>清理资源场景</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:12px">
+          <div style="font-size:10.5px;font-weight:700;color:#79c0ff;font-family:'JetBrains Mono',monospace;margin-bottom:8px">
+            🔌 Plugin Hook 扩展点（src/config/types.hooks.ts）
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px">
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:4px 7px;font-size:9.5px;font-family:'JetBrains Mono',monospace;color:#8b949e">agent:run:start</div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:4px 7px;font-size:9.5px;font-family:'JetBrains Mono',monospace;color:#8b949e">agent:run:end</div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:4px 7px;font-size:9.5px;font-family:'JetBrains Mono',monospace;color:#8b949e">tool:call:start</div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:4px 7px;font-size:9.5px;font-family:'JetBrains Mono',monospace;color:#8b949e">tool:call:end</div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:4px 7px;font-size:9.5px;font-family:'JetBrains Mono',monospace;color:#8b949e">config:loaded</div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:4px 7px;font-size:9.5px;font-family:'JetBrains Mono',monospace;color:#8b949e">gateway:ready</div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:4px 7px;font-size:9.5px;font-family:'JetBrains Mono',monospace;color:#8b949e">cron:tick</div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:4px 7px;font-size:9.5px;font-family:'JetBrains Mono',monospace;color:#8b949e">heartbeat:done</div>
+          </div>
+          <div style="font-size:9px;color:#6e7681;margin-top:8px;line-height:1.5">
+            Plugin 可订阅所有 Hook 事件 · Hook 上下文含 sessionKey/channelId/agentId<br>
+            支持 async Hook 处理器 · 错误不影响主流程 · 扩展点文档: docs/automation/hooks.md
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MULTI-AGENT SECTION ===== -->
+  <div class="flow-section" style="border-color:#8957e5">
+    <div class="section-title">
+      <span style="color:#bc8cff">🤖 Multi-Agent 子 Agent 系统</span>
+      <span style="font-size:10px;color:#8b949e;font-weight:400;font-family:sans-serif">
+        sessions_spawn · src/agents/tools/sessions-spawn-tool.ts · src/agents/subagent-announce.ts
+      </span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1.6fr 1fr;gap:10px;margin-top:6px">
+
+      <!-- Left: Security Rules -->
+      <div style="background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:12px">
+        <div style="font-size:10.5px;font-weight:700;color:#bc8cff;font-family:'JetBrains Mono',monospace;margin-bottom:8px">🔐 安全约束</div>
+
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="background:#161b22;border:1px solid #f8514933;border-radius:6px;padding:7px 9px">
+            <div style="font-size:9.5px;color:#f85149;font-weight:700;font-family:'JetBrains Mono',monospace">❌ 禁止 Nested Spawn</div>
+            <div style="font-size:8.5px;color:#6e7681;margin-top:2px;line-height:1.4">Sub-agent 不可再调用<br>sessions_spawn<br>防止无限递归</div>
+          </div>
+          <div style="background:#161b22;border:1px solid #d2992233;border-radius:6px;padding:7px 9px">
+            <div style="font-size:9.5px;color:#e3b341;font-weight:700;font-family:'JetBrains Mono',monospace">⚠️ 跨 Agent Spawn</div>
+            <div style="font-size:8.5px;color:#6e7681;margin-top:2px;line-height:1.4">需显式配置<br>allowAgents 白名单<br>默认仅同 Agent</div>
+          </div>
+          <div style="background:#161b22;border:1px solid #8957e533;border-radius:6px;padding:7px 9px">
+            <div style="font-size:9.5px;color:#bc8cff;font-weight:700;font-family:'JetBrains Mono',monospace">🔒 Tool 隔离</div>
+            <div style="font-size:8.5px;color:#6e7681;margin-top:2px;line-height:1.4">Sub-agent 默认禁止<br>sessions_* 工具<br>防止干扰主会话</div>
+          </div>
+          <div style="background:#161b22;border:1px solid #2ea04333;border-radius:6px;padding:7px 9px">
+            <div style="font-size:9.5px;color:#56d364;font-weight:700;font-family:'JetBrains Mono',monospace">✅ Visibility 过滤</div>
+            <div style="font-size:8.5px;color:#6e7681;margin-top:2px;line-height:1.4">sessions_list 只看<br>自己 spawn 的子 session<br>sessionToolsVisibility</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center: Spawn Flow -->
+      <div style="background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:12px">
+        <div style="font-size:10.5px;font-weight:700;color:#bc8cff;font-family:'JetBrains Mono',monospace;margin-bottom:10px">
+          🔄 sessions_spawn 完整执行流（sessions-spawn-tool.ts:60-688）
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:0">
+
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:22px;height:22px;border-radius:50%;background:#8957e5;color:#fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0">1</div>
+              <div style="width:1px;flex:1;background:#30363d;min-height:16px"></div>
+            </div>
+            <div style="background:#1c1030;border:1px solid #8957e5;border-radius:6px;padding:7px 10px;flex:1;margin-bottom:6px">
+              <div style="font-size:10px;color:#bc8cff;font-weight:600;font-family:'JetBrains Mono',monospace">安全检查</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:2px">isSubagentSessionKey() · allowAgents 白名单验证</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:22px;height:22px;border-radius:50%;background:#8957e5;color:#fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0">2</div>
+              <div style="width:1px;flex:1;background:#30363d;min-height:16px"></div>
+            </div>
+            <div style="background:#1c1030;border:1px solid #8957e5;border-radius:6px;padding:7px 10px;flex:1;margin-bottom:6px">
+              <div style="font-size:10px;color:#bc8cff;font-weight:600;font-family:'JetBrains Mono',monospace">生成 Sub-agent Session Key</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:2px;font-family:'JetBrains Mono',monospace">agent:&lt;agentId&gt;:subagent:&lt;uuid&gt;</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:22px;height:22px;border-radius:50%;background:#8957e5;color:#fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0">3</div>
+              <div style="width:1px;flex:1;background:#30363d;min-height:16px"></div>
+            </div>
+            <div style="background:#1c1030;border:1px solid #8957e5;border-radius:6px;padding:7px 10px;flex:1;margin-bottom:6px">
+              <div style="font-size:10px;color:#bc8cff;font-weight:600;font-family:'JetBrains Mono',monospace">构建 Sub-agent System Prompt</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:2px">minimal 精简版 · 注入任务描述 · 告知结果回传方式</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:22px;height:22px;border-radius:50%;background:#8957e5;color:#fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0">4</div>
+              <div style="width:1px;flex:1;background:#30363d;min-height:16px"></div>
+            </div>
+            <div style="background:#1c1030;border:1px solid #8957e5;border-radius:6px;padding:7px 10px;flex:1;margin-bottom:6px">
+              <div style="font-size:10px;color:#bc8cff;font-weight:600;font-family:'JetBrains Mono',monospace">注册 Sub-agent Run</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:2px">registerSubagentRun() · lane: AGENT_LANE_SUBAGENT</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:22px;height:22px;border-radius:50%;background:#8957e5;color:#fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0">5</div>
+              <div style="width:1px;flex:1;background:#30363d;min-height:16px"></div>
+            </div>
+            <div style="background:#1c1030;border:1px solid #8957e5;border-radius:6px;padding:7px 10px;flex:1;margin-bottom:6px">
+              <div style="font-size:10px;color:#bc8cff;font-weight:600;font-family:'JetBrains Mono',monospace">通过 Gateway 派发任务</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:2px">chat.send → Sub-agent Session · deliveryContext 继承</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:22px;height:22px;border-radius:50%;background:#8957e5;color:#fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0">6</div>
+              <div style="width:1px;flex:1;background:#30363d;min-height:16px"></div>
+            </div>
+            <div style="background:#1c1030;border:1px solid #8957e5;border-radius:6px;padding:7px 10px;flex:1;margin-bottom:6px">
+              <div style="font-size:10px;color:#bc8cff;font-weight:600;font-family:'JetBrains Mono',monospace">等待完成（可超时）</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:2px">waitForSubagentCompletion(runId, timeout)</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:22px;height:22px;border-radius:50%;background:#56d364;color:#0d1117;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0">7</div>
+            </div>
+            <div style="background:#0a2018;border:1px solid #2ea043;border-radius:6px;padding:7px 10px;flex:1">
+              <div style="font-size:10px;color:#56d364;font-weight:600;font-family:'JetBrains Mono',monospace">结果回传 + 清理</div>
+              <div style="font-size:9px;color:#6e7681;margin-top:2px">Announce Back → 父 Session · cleanup: keep/delete</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Right: Architecture + ACP -->
+      <div style="display:flex;flex-direction:column;gap:8px">
+
+        <div style="background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:12px">
+          <div style="font-size:10.5px;font-weight:700;color:#bc8cff;font-family:'JetBrains Mono',monospace;margin-bottom:8px">🏗 会话层级结构</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#6e7681;line-height:1.8;background:#161b22;border-radius:5px;padding:8px">
+            <span style="color:#58a6ff">main session</span><br>
+            &nbsp;└── <span style="color:#56d364">group session</span><br>
+            &nbsp;└── <span style="color:#bc8cff">subagent session</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#484f58">agent:&lt;id&gt;:subagent:&lt;uuid&gt;</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;❌ 不可再 spawn<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;🔒 tool 受限<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;📤 结果→父 session
+          </div>
+        </div>
+
+        <div style="background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:12px">
+          <div style="font-size:10.5px;font-weight:700;color:#bc8cff;font-family:'JetBrains Mono',monospace;margin-bottom:8px">🔗 ACP 协议集成（2026.3.3）</div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div style="font-size:9px;color:#8b949e;line-height:1.5">
+              ACP = Agent Client Protocol<br>
+              NDJSON over stdin/stdout<br>
+              Gateway-backed 架构
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:5px;padding:6px 8px;font-size:9px;color:#6e7681;font-family:'JetBrains Mono',monospace;line-height:1.5">
+              streamTo: "parent"<br>
+              → 子 run 进度→父 session<br>
+              → 仅 runtime:"acp" 有效<br>
+              → 生成 .acp-stream.jsonl
+            </div>
+            <div style="font-size:9px;color:#6e7681;line-height:1.4">
+              persistent bindings 支持<br>
+              Discord thread → 父 channel<br>
+              Session Bootstrap 自动重试
+            </div>
+          </div>
+        </div>
+
+        <div style="background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:10px">
+          <div style="font-size:10px;font-weight:700;color:#bc8cff;font-family:'JetBrains Mono',monospace;margin-bottom:6px">📋 System Prompt 级别</div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:5px 8px;display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:9.5px;font-family:'JetBrains Mono',monospace;color:#79c0ff">full</span>
+              <span style="font-size:8.5px;color:#6e7681">主对话 · 全部模板</span>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:5px 8px;display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:9.5px;font-family:'JetBrains Mono',monospace;color:#bc8cff">minimal</span>
+              <span style="font-size:8.5px;color:#6e7681">Sub-agent · 精简版</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== BOTTOM PILLARS ===== -->
+  <div class="pillars-section">
+    <div class="pillars-label">── 四大支柱 ──</div>
+    <div class="pillars-row">
+      <div class="pillar pillar-gateway">
+        <div class="pillar-name">🔮 Gateway</div>
+        <div class="pillar-sub">控制平面 · Local-First · Always-On · One Per Host</div>
+        <div class="pillar-tags">
+          <span class="pillar-tag">WebSocket RPC</span><span class="pillar-tag">100+ Methods</span>
+          <span class="pillar-tag">Hot-Reload</span><span class="pillar-tag">mDNS</span>
+          <span class="pillar-tag">Tailscale</span><span class="pillar-tag">Cron</span>
+        </div>
+      </div>
+      <div class="pillar pillar-runtime">
+        <div class="pillar-name">⚙️ Agent Runtime</div>
+        <div class="pillar-sub">执行平面 · Pi-embedded · Streaming · Multi-Agent</div>
+        <div class="pillar-tags">
+          <span class="pillar-tag">LLM Failover</span><span class="pillar-tag">Tool Execution</span>
+          <span class="pillar-tag">Pluggable Sandbox</span><span class="pillar-tag">Memory</span>
+          <span class="pillar-tag">Skills</span><span class="pillar-tag">Subagent</span>
+        </div>
+      </div>
+        <div class="pillar pillar-channel">
+        <div class="pillar-name">📡 Channel Plugin</div>
+        <div class="pillar-sub">消息平面 · 20+ 平台 · 插件化架构</div>
+        <div class="pillar-tags">
+          <span class="pillar-tag">WhatsApp Baileys</span><span class="pillar-tag">Telegram grammY</span>
+          <span class="pillar-tag">Slack Bolt</span><span class="pillar-tag">Discord</span>
+          <span class="pillar-tag">Signal</span><span class="pillar-tag">iMessage</span>
+          <span class="pillar-tag">Feishu</span><span class="pillar-tag">Matrix</span>
+        </div>
+      </div>
+      <div class="pillar pillar-skills">
+        <div class="pillar-name">✨ Skills</div>
+        <div class="pillar-sub">能力扩展 · 两层加载 · 动态发现 · SKILL.md</div>
+        <div class="pillar-tags">
+          <span class="pillar-tag">Workspace 级</span><span class="pillar-tag">Global 级</span>
+          <span class="pillar-tag">按需加载</span><span class="pillar-tag">System Prompt</span>
+          <span class="pillar-tag">ClawHub 市场</span><span class="pillar-tag">社区贡献</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== UPDATES BANNER ===== -->
+  <div class="updates-banner">
+    <div class="updates-banner-title">⭐ 近期重大更新（v2026.3.22+）</div>
+    <div class="updates-grid">
+      <div class="update-item">
+        <div class="update-item-title">🛒 ClawHub 插件市场</div>
+        <div class="update-item-desc">
+          <span class="update-tag">NEW</span> 官方插件 &amp; Skills 市场<br>
+          一键安装：<code>openclaw plugins install tavily</code><br>
+          通过 Gateway RPC 安装，无需重启
+        </div>
+      </div>
+      <div class="update-item">
+        <div class="update-item-title">🌐 新 LLM 提供商</div>
+        <div class="update-item-desc">
+          <span class="update-tag">NEW</span> Anthropic Vertex（Google Cloud）<br>
+          <span class="update-tag">NEW</span> Chutes AI · Qwen/ModelStudio<br>
+          OpenAI 默认模型升级至 gpt-5.4
+        </div>
+      </div>
+      <div class="update-item">
+        <div class="update-item-title">📦 可插拔沙箱后端</div>
+        <div class="update-item-desc">
+          <span class="update-tag">NEW</span> OpenShell 云端 Shell<br>
+          <span class="update-tag">NEW</span> SSH 远程服务器执行<br>
+          Docker 仍为默认，三者共享 Tool Policy
+        </div>
+      </div>
+      <div class="update-item">
+        <div class="update-item-title">🤖 Multi-Agent 增强</div>
+        <div class="update-item-desc">
+          <span class="update-tag">NEW</span> <code>subagents</code> 工具：list/steer/kill<br>
+          <span class="update-tag">NEW</span> ACP 路径（进程级隔离）<br>
+          Thread Binding（Slack/Discord 线程）
+        </div>
+      </div>
+      <div class="update-item">
+        <div class="update-item-title">🧠 Memory 系统升级</div>
+        <div class="update-item-desc">
+          <span class="update-tag">NEW</span> QMD 外部后端 + 自动降级<br>
+          <span class="update-tag">NEW</span> MMR 多样性重排序<br>
+          6 种 Embedding 提供商（+Voyage/Mistral）
+        </div>
+      </div>
+      <div class="update-item">
+        <div class="update-item-title">💬 聊天功能扩展</div>
+        <div class="update-item-desc">
+          <span class="update-tag">NEW</span> <code>/btw</code> 旁路问答<br>
+          <span class="update-tag">NEW</span> <code>/plugins</code> 聊天命令<br>
+          clawdbot/moltbot → 兼容性 shim
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="version-tag">
+    OpenClaw v2026.3.22+ · commit 73055728→latest · 研究日期 2026-03-06（2026-03-24 更新） · 基于源代码 src/ 分析 · awesome-llm-projects/openclaw
+  </div>
+
+</div><!-- /diagram -->
+</body>
+</html>

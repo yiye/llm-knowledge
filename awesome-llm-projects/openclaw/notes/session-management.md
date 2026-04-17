@@ -1183,6 +1183,107 @@ Main Session
 
 ---
 
+## 10.5 Multi-Agent 深度更新（⭐ 2026.3.22+ 代码）
+
+### 10.5.1 两种 Spawn 路径（subagent vs ACP）
+
+`sessions_spawn` 工具支持两种运行时路径，通过 `runtime` 参数控制：
+
+```
+sessions_spawn(runtime="subagent")   →  spawnSubagentDirect()
+    └── src/agents/subagent-spawn.ts
+    └── 走 Gateway WebSocket → sessions.create + agent 方法
+    └── 在主 Gateway 进程内调度
+
+sessions_spawn(runtime="acp")        →  spawnAcpDirect()
+    └── src/agents/acp-spawn.ts
+    └── 启动独立子进程（openclaw 进程），NDJSON over stdin/stdout
+    └── Codex-style：适合完全隔离的 Agent 运行环境
+    └── 支持 streamTo: "parent"（进度实时转发到父 Session）
+```
+
+**ACP 路径特点**：
+- 创建独立进程，真正的进程级隔离
+- 通过 `streamTo: "parent"` 可将子进程输出实时中继到父 Session
+- 支持 `streamLogPath` 记录完整日志（可用 `tail` 查看历史）
+- 内联 Attachments 不支持（仅 subagent 路径支持）
+
+### 10.5.2 Subagent Registry（子 Agent 状态追踪）
+
+**位置**：`src/agents/subagent-registry.ts`
+
+Registry 负责**全生命周期追踪**所有子 Agent 运行状态：
+
+```typescript
+// 状态存储：内存 + 磁盘双写
+// 内存：Map<runId, SubagentRunState>（快速查询）
+// 磁盘：<workspaceDir>/.openclaw/subagent-runs/<runId>.json（持久化）
+
+type SubagentRunState = {
+  runId: string;
+  requesterSessionKey: string;
+  subagentSessionKey: string;
+  status: "running" | "completed" | "failed" | "timeout";
+  result?: string;
+  error?: string;
+  startedAt: number;
+  completedAt?: number;
+};
+```
+
+**核心流程**：
+1. `registerSubagentRun()` — 记录 run 开始，双写内存+磁盘
+2. 监听 Agent 生命周期事件（通过 `runtime.events.onAgentEvent`）
+3. 子 Agent 完成 → `announceSubagentResult()` 将结果发送到父 Session
+4. 支持重试：`LIFECYCLE_ERROR_RETRY_GRACE_MS` 容忍瞬态错误
+
+**Announce 机制**：
+子 Agent 完成后，Registry 会通过 `sessions.send` 将结果自动注入到父 Session 的消息队列，父 Agent 在下一次 LLM 调用时看到子任务结果。
+
+### 10.5.3 Thread Binding（频道线程绑定）
+
+当 `sessions_spawn` 使用 `thread: true` 时，子 Agent 的消息会绑定到特定的频道线程（如 Slack 线程、Discord 线程）：
+
+```typescript
+// 必须有 channel plugin 注册 subagent_spawning hook
+if (!hookRunner.hasHooks("subagent_spawning")) {
+  return {
+    status: "error",
+    error: "thread=true is unavailable because no channel plugin registered subagent_spawning hooks.",
+  };
+}
+```
+
+**Thread Binding 流程**：
+```
+1. 检查 channel plugin 是否注册了 subagent_spawning hook
+2. 调用 runSubagentSpawning() → channel plugin 创建线程
+3. 获取 threadId，绑定到子 Session
+4. 子 Agent 消息发送到该 threadId
+5. 子 Agent 结束 → runSubagentEnded() → channel plugin 清理
+```
+
+**需要频道支持**：Slack、Discord、Teams 等支持线程的频道可实现此功能；普通频道（Telegram 等）不支持。
+
+### 10.5.4 `subagents` 工具（运行时管理）
+
+`subagents` 工具（`src/agents/tools/subagents-tool.ts`）让父 Agent 可以在运行时管理子 Agent：
+
+| action | 说明 | 参数 |
+|--------|------|------|
+| `list` | 列出当前所有子 Agent 及状态 | — |
+| `kill` | 中止指定子 Agent | `sessionKey` |
+| `steer` | 向运行中的子 Agent 发送新指令 | `sessionKey`, `message` |
+
+**典型使用场景**：
+```
+主 Agent 发现子 Agent 方向跑偏
+→ subagents({ action: "steer", sessionKey: "...", message: "请停止并返回已找到的结果" })
+→ 子 Agent 收到 system message，调整行为
+```
+
+**与 subagent-registry 的关系**：`subagents` 工具通过查询 subagent-registry 获取状态列表，通过 `sessions.send` 实现 steer，通过 `sessions.abort` 实现 kill。
+
 ## 11. 未来研究方向
 
 ### 11.1 Session Compaction 机制
